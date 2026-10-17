@@ -28,7 +28,7 @@ const evaluate = async expression => {
   return r.result.value;
 };
 const waitFor = async expression => {
-  for (let i=0; i<60; i++) { if (await evaluate(expression)) return; await new Promise(r=>setTimeout(r,100)); }
+  for (let i=0; i<200; i++) { if (await evaluate(expression)) return; await new Promise(r=>setTimeout(r,100)); }
   throw new Error(`Not ready: ${expression}`);
 };
 const click = selector => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
@@ -108,9 +108,77 @@ try {
   await click('.tabbar > .btn:last-child');
   await waitFor(`document.querySelectorAll('.pane').length === 2`);
   await screenshot('terminal-split');
+  // Verify the advanced UI against explicit agent responses, without touching a real VPS.
+  await evaluate(`window.advancedFetch = window.fetch; window.advancedConfirm = window.confirm;
+    window.confirm = () => true;
+    window.fetch = async (input, init = {}) => {
+      const url = new URL(String(input), location.href);
+      const json = value => new Response(JSON.stringify(value), {headers:{'Content-Type':'application/json'}});
+      if (url.pathname === '/api/services') return json({services:[{unit:'nginx.service',active:'active',sub:'running',load:'loaded',description:'Web server'}]});
+      if (url.pathname === '/api/services/action') {window.lastServiceAction=JSON.parse(init.body);return json({ok:true});}
+      if (url.pathname === '/api/diagnostics') return json({bind:'100.64.0.12:18710',tailscale_ip:'100.64.0.12',agent_version:'0.2.0',role:'admin'});
+      if (url.pathname === '/api/update/status') return json({installed_version:'0.2.0',state:'updated',rollback_available:true});
+      if (url.hostname === 'api.github.com') return json({tag_name:'v0.2.0'});
+      if (url.pathname === '/api/security/audit') return json({entries:[{ts:1792224000,method:'POST',path:'/api/services/action',status:200,role:'admin'}]});
+      if (url.pathname === '/api/files') {
+        if (window.deferInitialListing && url.searchParams.get('path') === '/tmp') { window.deferInitialListing=false; await new Promise(resolve => {window.releaseInitialListing=resolve;}); }
+        return json({path:url.searchParams.get('path'),entries:[{name:'config.txt',kind:'file',size:6,mode:'600'}]});
+      }
+      if (url.pathname === '/api/files/read') return json({path:'/tmp/config.txt',content:'before'});
+      if (url.pathname === '/api/files/write') {window.lastFileWrite=JSON.parse(init.body);return json({ok:true,backup:'/tmp/config.txt.vps-backup-test'});}
+      return window.advancedFetch(input, init);
+    };`);
+  await click('.side nav button:nth-child(5)');
+  await click('.operations .operation-section .section-heading button');
+  await waitFor(`document.querySelector('.operations tbody')?.textContent.includes('nginx.service')`);
+  await click('.operations tbody .row-actions button:nth-child(3)');
+  await waitFor(`window.lastServiceAction?.action === 'restart'`);
+  await fill('.operations input[type=search]', 'missing-service');
+  assert.equal(await evaluate(`document.querySelectorAll('.operations tbody tr').length`),0);
+  await fill('.operations input[type=search]', '');
+  await evaluate(`window.operationWebSocket=window.WebSocket;window.WebSocket=class {constructor(){window.logSocket=this;} close(){}};`);
+  await click('.operations .operation-toolbar button');
+  await waitFor(`!!window.logSocket?.onmessage`);
+  await evaluate(`window.logSocket.onmessage({data:JSON.stringify({t:'line',data:'nginx: test service started'})})`);
+  assert.match(await evaluate(`document.querySelector('.operations .log-output').textContent`),/nginx: test service started/);
+  assert.doesNotMatch(await evaluate(`document.querySelector('.operations .log-output').textContent`),/"t":"line"/);
+  await evaluate(`window.WebSocket=window.operationWebSocket`);
+  await screenshot('operations-services');
+  await click('.operations > .platforms button:nth-child(2)');
+  await click('.operations .operation-section .section-heading button');
+  await waitFor(`document.querySelector('.status-grid')?.textContent.includes('100.64.0.12:18710')`);
+  await screenshot('operations-update');
+  await click('.operations > .platforms button:nth-child(3)');
+  await click('.operations .operation-body .row-actions button:nth-child(3)');
+  await waitFor(`document.querySelector('.operations tbody')?.textContent.includes('/api/services/action')`);
+  await screenshot('operations-security');
+  await click('.side nav button:nth-child(6)');
+  await waitFor(`document.querySelector('.file-manager tbody')?.textContent.includes('config.txt')`);
+  await fill('.file-toolbar input', '/opt/typed-but-not-opened');
+  await click('.file-manager tbody button');
+  await waitFor(`!!document.querySelector('.file-manager textarea')`);
+  await evaluate(`(() => {const el=document.querySelector('.file-manager textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,'after');el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await click('.file-manager section button');
+  await waitFor(`window.lastFileWrite?.content === 'after'`);
+  assert.equal(await evaluate(`window.lastFileWrite.path`),'/tmp/config.txt');
+  await screenshot('files-editor');
+  await click('.side nav button:nth-child(4)');
+  await waitFor(`!!document.querySelector('.monitor-controls')`);
+  await screenshot('monitoring-history');
+  await click('.side nav button:nth-child(5)');
+  await evaluate(`window.deferInitialListing=true;delete window.releaseInitialListing;`);
+  await click('.side nav button:nth-child(6)');
+  await waitFor(`typeof window.releaseInitialListing === 'function'`);
+  await fill('.file-toolbar input', '/opt');
+  await click('.file-toolbar button');
+  await waitFor(`document.querySelector('.file-drop code')?.textContent === '/opt'`);
+  await evaluate(`window.releaseInitialListing()`);
+  await new Promise(resolve => setTimeout(resolve,100));
+  assert.equal(await evaluate(`document.querySelector('.file-drop code').textContent`),'/opt','Late initial list must not override the selected directory');
+  await evaluate('window.fetch = window.advancedFetch; window.confirm = window.advancedConfirm');
   await click('.side nav button:nth-child(1)');
   await waitFor(`!!document.querySelector('.srv-name')`);
   await call('Page.reload');
   await waitFor(`document.querySelector('.srv-name')?.textContent === 'production-01'`);
-  console.log('PASS: save failure, add server, persistence, search, safe install commands, desktop/mobile layout, live/stale metrics, terminal split.');
+  console.log('PASS: profiles, safe installers, responsive layout, live/stale metrics, terminal split, service actions/search, maintenance, audit, file editing and monitoring.');
 } catch (error) { console.error(await evaluate("document.body.innerText")); await screenshot("failure"); throw error; } finally { ws.close(); }

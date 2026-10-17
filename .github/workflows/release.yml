@@ -25,6 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Build agent
         working-directory: agent
         run: |
@@ -40,6 +43,8 @@ jobs:
         run: bash e2e/update-check.sh
       - name: Test service installation and upgrade
         run: sudo bash e2e/linux-install-check.sh agent/target/release/vps-agent
+      - name: Test active session revocation
+        run: sudo env "PATH=$PATH" node e2e/agent-security-check.mjs
       - name: Package agent and installer
         env:
           ARCH: ${{ matrix.arch }}
@@ -80,7 +85,9 @@ jobs:
           node client/src/lib/db.test.mjs
       - name: Check native commands
         working-directory: client/src-tauri
-        run: cargo test --locked
+        run: |
+          npm --prefix .. run build
+          cargo test --locked
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version '^2' --locked
       - name: Build Windows application and MSI

@@ -33,7 +33,7 @@ function Shell() {
           <button className={state.view === "operations" ? "active" : ""} onClick={() => dispatch({ type: "set-view", view: "operations" })}><span aria-hidden="true">⚙</span> Kelola VPS</button>
           <button className={state.view === "files" ? "active" : ""} onClick={() => dispatch({ type: "set-view", view: "files" })}><span aria-hidden="true">▱</span> File</button>
         </nav>
-        <div className="side-foot"><strong>Workspace lokal</strong><p>Profil server tersimpan di perangkat ini.</p><span>VPS Manager <span className="version">v0.1.0</span></span></div>
+        <div className="side-foot"><strong>Workspace lokal</strong><p>Profil server tersimpan di perangkat ini.</p><span>VPS Manager <span className="version">v0.2.0</span></span></div>
       </aside>
       <main className="main">
         <div className="topbar"><span>Workspace <span className="breadcrumb">/</span> {viewNames[state.view]}</span><span className="local-badge">Penyimpanan lokal</span></div>

@@ -100,6 +100,22 @@ Binary frame tidak dipakai; semua JSON text frame.
 Server menjalankan `journalctl -u <unit> -f -n 100 --no-pager -o cat`,
 setiap baris dikirim sebagai `{ "t": "line", "data": "..." }`.
 
+## Keamanan dan pemeliharaan (v0.2.0)
+
+`GET /api/diagnostics` mengembalikan `{bind,tailscale_ip,agent_version,role}`. `role` adalah `admin` atau `readonly` sesuai token permintaan. `tailscale_ip` dapat `null`.
+
+`POST /api/security/rotate` dengan JSON `{kind:"admin"}` atau `{kind:"readonly"}` mengembalikan `{token,kind}`. Hanya admin; token disimpan atomik dengan mode 0600. Simpan token admin baru sebelum meninggalkan layar; client lain dengan token lama kehilangan akses. WebSocket aktif memeriksa ulang token dan ditutup setelah rotasi.
+
+`GET /api/security/audit` mengembalikan `{entries:[{ts,method,path,status,role}]}`. `ts` adalah Unix seconds. Maksimal 200 operasi sesi; tidak memuat query, isi file, token, atau perintah. Hanya admin.
+
+Read-only hanya mengizinkan GET `/api/info`, `/api/metrics`, `/api/services`, `/api/diagnostics`, `/api/update/status`, dan WS `/ws/metrics`. File, proses, jaringan, log, terminal, rotasi token dan semua mutasi ditolak.
+
+`GET /api/update/status` mengembalikan `{installed_version,state,output,rollback_available}`. State: `idle`, `running`, `updated`, `rolled_back`, atau `failed`. `POST /api/update` dengan `{action:"update"}` atau `{action:"rollback"}` meminta systemd menjalankan updater terpisah dan mengembalikan `{ok:true}`. Hanya admin dapat meminta mutasi. Status permintaan diterima tidak berarti update selesai; baca status sesudah agent tersambung kembali.
+
+Installer v0.2.0 memasang `vps-agent-update@.service` dan updater fixed-origin Catly. Binary sebelumnya disimpan di `/opt/vps-agent/vps-agent.previous`; checksum/ELF/arsitektur diperiksa sebelum penggantian, dan health check memakai token/bind saat ini.
+
+Penulisan/upload file membuat backup unik pada direktori yang sama dan mengganti file secara atomik. File unduhan dan penggantian dibatasi 32 MB; pembacaan editor 2 MB. Resolusi direktori memakai descriptor tanpa mengikuti symlink; parent harus milik pengguna agent tanpa izin tulis group/other. Penulisan dari agent diserialisasi; perubahan oleh proses eksternal tetap harus dikoordinasikan pemilik. SFTP desktop terpisah dari HTTP agent dan memakai kredensial SSH.
+
 ## Kode error
 - `401` — token salah/hilang
 - `403` — path di luar batas yang diizinkan (file manager menolak `..` lolos root)

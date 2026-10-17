@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Capability for the main window","local":true,"windows":["main"],"permissions":["sql:allow-load","sql:allow-execute","sql:allow-select","notification:default","core:default"]}}

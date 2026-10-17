@@ -22,6 +22,7 @@ function ready(): Promise<boolean> {
       if (!detectTauri()) return false;
       try {
         const d = await Database.load("sqlite:vpsmanager.db");
+        await d.execute("PRAGMA secure_delete=ON");
         await d.execute(`
           CREATE TABLE IF NOT EXISTS servers (
             id TEXT PRIMARY KEY, name TEXT NOT NULL, host TEXT NOT NULL,
@@ -64,12 +65,23 @@ function webSet(key: string, val: unknown): void {
 export async function loadServers(): Promise<Server[]> {
   if (await ready()) {
     const servers = await db!.select<Server[]>("SELECT * FROM servers ORDER BY name");
-    for (const server of servers) {
-      if (server.token) {
-        await storeToken(server.id, server.token);
-        await db!.execute("UPDATE servers SET token='' WHERE id=?", [server.id]);
+    let migrated = false;
+    try {
+      for (const server of servers) {
+        if (server.token) {
+          await storeToken(server.id, server.token);
+          // SQLx uses a connection pool: set the pragma and clear on the same connection.
+          await db!.execute("PRAGMA secure_delete=ON; UPDATE servers SET token='' WHERE id=?", [server.id]);
+          migrated = true;
+        }
+        server.token = await invoke<string | null>("credential_get", { id: server.id }) ?? "";
       }
-      server.token = await invoke<string | null>("credential_get", { id: server.id }) ?? "";
+    } finally {
+      if (migrated || servers.length > 0) {
+        // Also retry cleanup on the next load if a prior checkpoint was busy.
+        const result = await db!.select<{ busy: number }[]>("PRAGMA wal_checkpoint(TRUNCATE)");
+        if (result[0]?.busy !== 0) throw new Error("Tokens migrated to OS credentials, but SQLite WAL cleanup is busy; close other app instances and retry");
+      }
     }
     return servers;
   }
@@ -91,12 +103,23 @@ async function storeToken(id: string, token: string): Promise<void> {
 
 export async function saveServer(s: Server): Promise<void> {
   if (await ready()) {
-    await storeToken(s.id, s.token);
-    await db!.execute(
-      "INSERT INTO servers (id,name,host,port,token) VALUES (?,?,?,?,?) " +
-        "ON CONFLICT(id) DO UPDATE SET name=excluded.name,host=excluded.host,port=excluded.port,token=excluded.token",
-      [s.id, s.name, s.host, s.port, ""],
-    );
+    const previous = await invoke<string | null>("credential_get", { id: s.id });
+    try {
+      await storeToken(s.id, s.token);
+      await db!.execute(
+        "INSERT INTO servers (id,name,host,port,token) VALUES (?,?,?,?,?) " +
+          "ON CONFLICT(id) DO UPDATE SET name=excluded.name,host=excluded.host,port=excluded.port,token=excluded.token",
+        [s.id, s.name, s.host, s.port, ""],
+      );
+    } catch (error) {
+      try {
+        if (previous === null) await invoke("credential_delete", { id: s.id });
+        else await storeToken(s.id, previous);
+      } catch (rollbackError) {
+        throw new Error(`Profile save failed (${String(error)}); credential rollback also failed (${String(rollbackError)}). The profile and vault may differ; keep your token and retry saving.`);
+      }
+      throw error;
+    }
     return;
   }
   const all = browserServers().filter((x) => x.id !== s.id);
@@ -106,9 +129,19 @@ export async function saveServer(s: Server): Promise<void> {
 
 export async function deleteServer(id: string): Promise<void> {
   if (await ready()) {
-    await db!.execute("DELETE FROM servers WHERE id=?", [id]);
-    await db!.execute("DELETE FROM metric_history WHERE server_id=?", [id]);
+    const previous = await invoke<string | null>("credential_get", { id });
     await invoke("credential_delete", { id });
+    try {
+      await db!.execute("DELETE FROM servers WHERE id=?", [id]);
+    } catch (error) {
+      if (previous !== null) {
+        try { await storeToken(id, previous); }
+        catch (rollbackError) { throw new Error(`Profile deletion failed (${String(error)}); credential rollback also failed (${String(rollbackError)}). Keep your token and retry saving the profile.`); }
+      }
+      throw error;
+    }
+    try { await db!.execute("DELETE FROM metric_history WHERE server_id=?", [id]); }
+    catch (error) { throw new Error(`Profile and credential deleted, but history cleanup failed: ${String(error)}. Reload the server list.`); }
     return;
   }
   const servers = browserServers().filter((x) => x.id !== id);

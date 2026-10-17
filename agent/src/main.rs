@@ -15,7 +15,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
+    Router,
 };
 use serde::Deserialize;
 use std::{
@@ -27,7 +27,7 @@ use std::{
 use sysinfo::System;
 use tower_http::cors::CorsLayer;
 
-pub const VERSION: &str = "0.1.0";
+pub const VERSION: &str = "0.2.0";
 
 #[derive(Clone)]
 pub struct AppState {

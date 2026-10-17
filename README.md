@@ -14,7 +14,7 @@ Linux dengan systemd, `curl`, dan coreutils. Binary x86_64 memerlukan glibc 2.35
 curl -fsSL https://github.com/wignn/catly/releases/latest/download/install.sh | sudo bash
 ```
 
-Installer memilih binary sesuai arsitektur, memeriksa SHA-256, memasang binary di `/opt/vps-agent/vps-agent` dengan symlink `/usr/local/bin/vps-agent`, lalu mengaktifkan dan menjalankan service `vps-agent` otomatis saat boot. Installer juga mencetak token. Saat upgrade, token dan alamat bind yang sudah dikonfigurasi dipertahankan. Instalasi baru hanya mendengarkan di `127.0.0.1:18710`.
+Installer memilih binary sesuai arsitektur, memeriksa SHA-256, memasang binary di `/opt/vps-agent/vps-agent` dengan symlink `/usr/local/bin/vps-agent`, lalu mengaktifkan dan menjalankan service `vps-agent` otomatis saat boot. Instalasi baru mendeteksi IP Tailscale yang sudah aktif; jika tidak ada, agent memakai `127.0.0.1:18710`. Saat upgrade, token dan alamat bind dipertahankan.
 
 Untuk versi tertentu, gunakan URL versi yang sama bagi skrip dan binary:
 
@@ -50,7 +50,19 @@ Hanya jalankan skrip dari penerbit yang kamu percaya. Untuk meninjau skrip terle
 3. Pilih **Uji koneksi** untuk memeriksa autentikasi.
 4. Buka **Dashboard** untuk metrik CPU, RAM, swap, disk, dan jaringan, atau **Terminal** untuk shell interaktif.
 
-Profil disimpan di SQLite pada aplikasi desktop. Mode browser untuk pengembangan memakai localStorage. Token tersimpan di perangkat, sehingga akses akun Windows juga harus dijaga. Agent menyediakan akses shell sebagai root; jangan buka port agent langsung ke internet. Service membatasi penulisan filesystem melalui systemd; operasi tulis di luar `/opt/vps-agent` dan `/etc/vps-agent` memerlukan penyesuaian unit service secara sadar.
+Profil desktop disimpan di SQLite; token disimpan di Windows Credential Manager. Token lama di SQLite dimigrasikan setelah penyimpanan aman berhasil diverifikasi. Mode browser menyimpan profil di localStorage dan token hanya di memori halaman: setelah reload, isi token lagi melalui **Edit**. Agent menyediakan akses shell sebagai root; gunakan Tailscale atau reverse proxy HTTPS. Service membatasi penulisan filesystem melalui systemd; operasi tulis di luar direktori yang diizinkan memerlukan penyesuaian unit service.
+
+## Pengelolaan lanjutan (v0.2.0)
+
+- **Server:** edit profil, uji koneksi dengan timeout dan URL tujuan, status terkini, versi agent, latensi, dan waktu koneksi terakhir. Pesan jaringan menunjukkan langkah pemeriksaan tanpa menebak penyebab firewall/CORS.
+- **Monitoring:** riwayat CPU/RAM/jaringan hingga tujuh hari, grafik 1 jam/24 jam/7 hari, dan alert CPU/RAM/disk ≥90%, server offline, serta service gagal. Notifikasi Windows memakai plugin resmi Tauri dan memerlukan opt-in. Pengambilan sampel dan notifikasi berjalan selama aplikasi terbuka; tidak ada pengiriman ke layanan pihak ketiga.
+- **Kelola VPS → Service & log:** cari service systemd, start/stop/restart dengan konfirmasi, dan ikuti/pencarian log langsung (maksimal 1.000 baris terakhir).
+- **File:** jelajah direktori, upload termasuk drag-and-drop, download, dan edit teks hingga 2 MB. File lama dicadangkan sebagai `*.vps-backup-*` sebelum diganti. Penulisan agent memerlukan direktori milik pengguna agent tanpa izin tulis group/other; gunakan SFTP untuk direktori milik pengguna lain. Batas akses juga mengikuti unit systemd.
+- **SFTP desktop:** transfer melalui Windows OpenSSH Client, memakai SSH key atau SSH agent. Hubungkan melalui `ssh -p PORT USER@HOST` lebih dahulu, periksa fingerprint, lalu simpan host key. Key terenkripsi harus dimuat di SSH agent. SFTP memakai file sementara sebelum mengganti tujuan dan tidak membuat backup agent; server tanpa dukungan rename pengganti dapat menolak overwrite.
+- **Update agent:** cek versi Catly, minta update stabil terbaru, atau rollback ke binary sebelumnya. Updater systemd memverifikasi SHA-256 dan arsitektur, serta memulihkan binary sebelumnya bila health check gagal. Endpoint ini memerlukan agent dan installer v0.2.0+; upgrade pertama dari v0.1.0 memakai perintah instalasi Linux di atas.
+- **Keamanan:** rotasi token admin, buat token read-only khusus pemantauan, dan audit operasi. Read-only tidak bisa membuka terminal/log, membaca file, atau menjalankan perintah. Token yang dirotasi membatalkan akses REST dan koneksi WebSocket lama. Audit sesi dibatasi 200 entri dan tidak mencatat isi perintah atau token.
+
+Tailscale harus sudah dipasang dan login di VPS serta Windows. Installer tidak mendaftarkan perangkat ke akun Tailscale atau membuka firewall publik. Bila konfigurasi lama masih loopback, ubah bind secara eksplisit seperti contoh di atas.
 
 ## Pengembangan
 
@@ -83,6 +95,8 @@ cd client
 npm run build
 cd ..
 powershell -NoProfile -ExecutionPolicy Bypass -File e2e/install-check.ps1
+node e2e/agent-client-check.mjs
+node client/src/lib/db.test.mjs
 ```
 
 Pemeriksaan UI tanpa dependency tambahan memerlukan Node.js 22+ (global WebSocket), client dev server di port 1420, dan Chrome dengan remote debugging port 9223. Jalankan Chrome menggunakan profil pengujian terpisah:
@@ -104,4 +118,4 @@ Pemeriksaan ini menguji penambahan dan persistensi profil, pencarian, kegagalan 
 | `docs/` | [Kontrak protokol](docs/AGENT_PROTOCOL.md) dan panduan rilis |
 | `e2e/` | Pemeriksaan UI dan installer |
 
-API proses, service, jaringan, file, dan log sudah tersedia di agent. UI saat ini mencakup profil server, dashboard, dan terminal.
+API proses dan jaringan tersedia di agent. UI mencakup profil server, dashboard, terminal, monitoring, service/log, file/SFTP, update/rollback, dan keamanan.

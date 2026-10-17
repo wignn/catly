@@ -1,6 +1,6 @@
 [package]
 name = "vps-agent"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Agent VPS untuk aplikasi VPS Manager: metrik realtime, terminal PTY, eksekusi perintah, proses, service, file manager via HTTP+WebSocket"
 
@@ -13,6 +13,7 @@ sysinfo = "0.32"
 portable-pty = "0.8"
 tower-http = { version = "0.5", features = ["cors"] }
 futures-util = "0.3"
+libc = "0.2"
 
 [profile.release]
 opt-level = 3

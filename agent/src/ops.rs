@@ -380,8 +380,12 @@ pub async fn net_info() -> Json<serde_json::Value> {
 fn read_limited(path: &std::path::Path, limit: u64) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let mut data = Vec::new();
-    std::fs::File::open(path)?.take(limit + 1).read_to_end(&mut data)?;
-    if data.len() as u64 > limit { return Err(std::io::Error::other("file size limit exceeded")); }
+    std::fs::File::open(path)?
+        .take(limit + 1)
+        .read_to_end(&mut data)?;
+    if data.len() as u64 > limit {
+        return Err(std::io::Error::other("file size limit exceeded"));
+    }
     Ok(data)
 }
 
@@ -394,25 +398,49 @@ fn safe_write(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
             unix::fs::{MetadataExt, OpenOptionsExt},
         },
     };
+    static WRITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _write_guard = WRITES
+        .lock()
+        .map_err(|_| std::io::Error::other("file writer unavailable"))?;
     if data.len() > 32 * 1024 * 1024 {
         return Err(std::io::Error::other("file exceeds 32MB"));
     }
     let parent = path
         .parent()
         .ok_or_else(|| std::io::Error::other("missing parent"))?;
-    for ancestor in parent.ancestors() {
-        if std::fs::symlink_metadata(ancestor)?
-            .file_type()
-            .is_symlink()
-        {
-            return Err(std::io::Error::other("symlink directory rejected"));
+    if !path.is_absolute() {
+        return Err(std::io::Error::other("absolute path required"));
+    }
+    // Linux O_NOFOLLOW | O_DIRECTORY: resolve every component relative to an opened fd.
+    let mut directory = File::open("/")?;
+    for component in parent.components() {
+        match component {
+            std::path::Component::RootDir => {}
+            std::path::Component::Normal(name) => {
+                directory = OpenOptions::new()
+                    .read(true)
+                    .custom_flags(0x20000 | 0x10000)
+                    .open(
+                        std::path::PathBuf::from(format!(
+                            "/proc/self/fd/{}",
+                            directory.as_raw_fd()
+                        ))
+                        .join(name),
+                    )?;
+            }
+            _ => return Err(std::io::Error::other("invalid directory component")),
         }
     }
-    // Anchor all subsequent operations to the opened directory, even if its name changes.
-    let directory = OpenOptions::new()
-        .read(true)
-        .custom_flags(0x20000 | 0x10000)
-        .open(parent)?;
+    let parent_metadata = directory.metadata()?;
+    // ponytail: writes require a directory owned by the agent user without group/world write;
+    // use native SFTP for user-controlled destinations until an isolated file worker exists.
+    let effective_uid = unsafe { libc::geteuid() };
+    if parent_metadata.uid() != effective_uid || parent_metadata.mode() & 0o022 != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "destination directory must belong to the agent user and deny group/world writes",
+        ));
+    }
     let anchored = std::path::PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
     let name = path
         .file_name()
@@ -420,7 +448,7 @@ fn safe_write(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
     let dest = anchored.join(name);
     let original = match OpenOptions::new()
         .read(true)
-        .custom_flags(0x20000)
+        .custom_flags(0x20000 | 0x800)
         .open(&dest)
     {
         Ok(file) => {
@@ -452,8 +480,7 @@ fn safe_write(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
                 .mode(0o600)
                 .open(backup)?;
             let mut bytes = Vec::new();
-            original
-                .by_ref()
+            Read::by_ref(&mut original)
                 .take(32 * 1024 * 1024 + 1)
                 .read_to_end(&mut bytes)?;
             if bytes.len() > 32 * 1024 * 1024 {
@@ -461,7 +488,7 @@ fn safe_write(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
             }
             saved.write_all(&bytes)?;
             saved.sync_all()?;
-            std::os::unix::fs::chown(&temp, Some(md.uid()), Some(md.gid()))?;
+            std::os::unix::fs::fchown(&output, Some(md.uid()), Some(md.gid()))?;
             output.set_permissions(md.permissions())?;
         }
         output.write_all(data)?;
@@ -759,6 +786,11 @@ mod file_tests {
         std::os::unix::fs::symlink(&path, &link).unwrap();
         assert!(safe_write(&link, b"attack").is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(safe_write(&path, b"unsafe directory").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

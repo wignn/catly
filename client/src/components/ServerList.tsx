@@ -47,7 +47,7 @@ export default function ServerList() {
     try {
       await persistServer({ id: editing ?? uid(), name: name.trim(), host: address, port: Number(port), token: token.trim() }, dispatch);
       resetDraft();
-    } catch { setError("Server belum tersimpan. Periksa akses penyimpanan lalu coba lagi."); }
+    } catch (e) { setError(`Server belum tersimpan. ${e instanceof Error ? e.message : "Periksa akses penyimpanan lalu coba lagi."}`); }
     finally { setSaving(false); }
   };
 

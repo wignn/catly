@@ -76,7 +76,11 @@ export default function Operations() {
       ws.onopen = () => { if (socket.current === ws) setLogStatus("Mengikuti log langsung."); };
       ws.onmessage = event => {
         if (socket.current !== ws || typeof event.data !== "string") return;
-        const text = event.data.slice(0, 65536);
+        let text = event.data.slice(0, 65536);
+        try {
+          const frame = JSON.parse(text) as { t?: string; data?: unknown };
+          if (frame.t === "line" && typeof frame.data === "string") text = frame.data;
+        } catch { /* Accept plain text from older agents as well. */ }
         setLogs(previous => [...previous, ...text.split("\n")].slice(-1000));
       };
       ws.onerror = () => { if (socket.current === ws) setLogStatus("Log gagal terhubung. Periksa akses admin, koneksi, dan nama service."); };

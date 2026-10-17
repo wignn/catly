@@ -54,7 +54,7 @@ if [[ -f "$SCRIPT_DIR/update.sh" ]]; then
 else
   command -v curl >/dev/null || fail 'curl diperlukan untuk updater.'
   UPDATER="$WORK/update.sh"
-  UPDATE_URL=https://github.com/wignn/catly/releases/latest/download
+  UPDATE_URL="${RELEASE_URL:-https://github.com/wignn/catly/releases/latest/download}"
   curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' "$UPDATE_URL/update.sh" -o "$UPDATER"
   curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' "$UPDATE_URL/update.sh.sha256" -o "$WORK/update.sha256"
   EXPECTED=$(awk 'NR==1 {print $1}' "$WORK/update.sha256")

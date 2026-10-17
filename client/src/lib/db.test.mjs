@@ -36,7 +36,7 @@ const profile = { id: "test", name: "Test", host: "localhost", port: 18710, toke
 }
 {
   let cleared = false;
-  const db = { execute: async sql => { if (sql.startsWith("UPDATE servers")) cleared = true; }, select: async () => [{ ...profile }] };
+  const db = { execute: async sql => { if (sql.includes("UPDATE servers")) cleared = true; }, select: async sql => sql.includes("wal_checkpoint") ? [{ busy: 0 }] : [{ ...profile }] };
   const failed = setup({ native: true, load: async () => db, invoke: async () => { throw new Error("vault denied"); } });
   await assert.rejects(failed.api.loadServers(), /vault denied/);
   assert.equal(cleared, false);
@@ -67,3 +67,62 @@ console.log("db secret migration checks passed");
   assert.equal(retained.at(-1).cpu, 99);
 }
 console.log("history full-period sampling checks passed");
+for (const previous of [null, "previous-token"]) {
+  let vault = previous;
+  const sqlError = new Error("profile SQL failed");
+  const db = { execute: async sql => { if (sql.startsWith("INSERT INTO servers")) throw sqlError; }, select: async () => [] };
+  const { api } = setup({ native: true, load: async () => db, invoke: async (command, args) => {
+    if (command === "credential_set") vault = args.token;
+    if (command === "credential_delete") vault = null;
+    return command === "credential_get" ? vault : null;
+  } });
+  await assert.rejects(api.saveServer({ ...profile, token: "replacement-token" }), /profile SQL failed/);
+  assert.equal(vault, previous, "SQL failure must restore the prior vault credential");
+}
+{
+  let vault = "previous-token";
+  const { api } = setup({ native: true, load: async () => ({ execute: async sql => { if (sql.startsWith("INSERT INTO servers")) throw new Error("SQL failed"); } }), invoke: async (command, args) => {
+    if (command === "credential_set") {
+      if (args.token === "previous-token") throw new Error("vault restore denied");
+      vault = args.token;
+    }
+    return command === "credential_get" ? vault : null;
+  } });
+  await assert.rejects(api.saveServer({ ...profile, token: "replacement-token" }), /credential rollback also failed/);
+}
+{
+  const calls = [];
+  let vault = null;
+  const { api } = setup({ native: true, load: async () => ({
+    execute: async sql => { calls.push(sql); },
+    select: async sql => { calls.push(sql); return sql.includes("wal_checkpoint") ? [{ busy: 0 }] : [{ ...profile }]; },
+  }), invoke: async (command, args) => {
+    if (command === "credential_set") vault = args.token;
+    return command === "credential_get" ? vault : null;
+  } });
+  await api.loadServers();
+  assert(calls.indexOf("PRAGMA secure_delete=ON") < calls.findIndex(sql => sql.includes("UPDATE servers")));
+  assert(calls.some(sql => sql.startsWith("PRAGMA secure_delete=ON; UPDATE servers")), "secure deletion must run on the migration connection");
+  assert(calls.indexOf("PRAGMA wal_checkpoint(TRUNCATE)") > calls.findIndex(sql => sql.includes("UPDATE servers")));
+}
+console.log("vault rollback and SQLite token cleanup checks passed");
+{
+  let vault = "previous-token";
+  const { api } = setup({ native: true, load: async () => ({ execute: async sql => { if (sql.startsWith("DELETE FROM servers")) throw new Error("delete SQL failed"); } }), invoke: async (command, args) => {
+    if (command === "credential_set") vault = args.token;
+    if (command === "credential_delete") vault = null;
+    return command === "credential_get" ? vault : null;
+  } });
+  await assert.rejects(api.deleteServer(profile.id), /delete SQL failed/);
+  assert.equal(vault, "previous-token");
+}
+{
+  let deleted = false;
+  const { api } = setup({ native: true, load: async () => ({ execute: async sql => { if (sql.startsWith("DELETE FROM servers")) deleted = true; } }), invoke: async command => {
+    if (command === "credential_delete") throw new Error("vault delete denied");
+    return "previous-token";
+  } });
+  await assert.rejects(api.deleteServer(profile.id), /vault delete denied/);
+  assert.equal(deleted, false);
+}
+console.log("profile deletion rollback checks passed");

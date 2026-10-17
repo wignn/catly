@@ -168,8 +168,8 @@ pub async fn diagnostics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn rotating_a_clone_invalidates_existing_token_and_persists() {
+    #[tokio::test]
+    async fn rotating_a_clone_invalidates_existing_token_and_persists() {
         let dir = std::env::temp_dir().join(format!("vps-token-{}", random_token().unwrap()));
         std::fs::create_dir(&dir).unwrap();
         let security = std::sync::Arc::new(std::sync::Mutex::new(Security {
@@ -179,9 +179,21 @@ mod tests {
             audit: VecDeque::new(),
         }));
         let clone = security.clone();
-        let token = random_token().unwrap();
-        save_token(&dir.join("token"), &token).unwrap();
-        security.lock().unwrap().admin = token.clone();
+        let state = crate::AppState {
+            security: security.clone(),
+            bind: "127.0.0.1:18710".into(),
+            sys: std::sync::Arc::new(std::sync::Mutex::new(sysinfo::System::new())),
+            net_prev: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        };
+        let response = rotate(
+            State(state),
+            Json(RotateReq {
+                kind: "admin".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        let token = response.0["token"].as_str().unwrap().to_owned();
         assert!(clone.lock().unwrap().role("old").is_none());
         assert_eq!(clone.lock().unwrap().role(&token).unwrap().0, "admin");
         assert_eq!(std::fs::read_to_string(dir.join("token")).unwrap(), token);
