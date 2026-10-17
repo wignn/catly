@@ -1,45 +1,54 @@
-﻿# Menyiapkan rilis
+﻿# Rilis Catly
 
-Belum ada URL unduhan resmi dalam proyek ini. Installer menerima URL folder rilis HTTPS sehingga dapat dipakai di GitHub Releases atau server milik sendiri.
+Repository: [wignn/catly](https://github.com/wignn/catly). Workflow [Build and release](../.github/workflows/release.yml) membuild agent Linux x86_64 dan aarch64 serta aplikasi Windows x64. Push ke `main`/`master`, pull request, dan pemicu manual menghasilkan artifact di GitHub Actions. Push tag `v*` juga menerbitkan seluruh hasil ke [GitHub Releases](https://github.com/wignn/catly/releases) setelah semua job berhasil.
 
-## Isi folder rilis
+## Membuat rilis
+
+Pastikan versi di `agent/Cargo.toml`, `agent/src/main.rs`, `client/package.json`, `client/src-tauri/Cargo.toml`, dan `client/src-tauri/tauri.conf.json` sesuai versi yang akan dirilis. Commit perubahan versi dan lockfile yang berubah sebelum membuat tag.
+
+```bash
+git push origin main
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Gunakan nomor versi baru untuk rilis berikutnya. Workflow memerlukan GitHub Actions aktif; job publikasi memakai `GITHUB_TOKEN` dengan permission `contents: write`. Tidak diperlukan token pribadi atau server hosting tambahan.
+
+## Asset rilis
 
 ```text
-install.sh                         # salinan agent/install.sh
-install.ps1                        # dari root proyek
+install.sh
+install.ps1
 vps-agent-linux-x86_64
 vps-agent-linux-x86_64.sha256
-vps-agent-linux-aarch64             # opsional, hanya jika sudah dibuild dan diuji
+vps-agent-linux-aarch64
 vps-agent-linux-aarch64.sha256
 vps-manager-windows-x64.msi
 vps-manager-windows-x64.msi.sha256
+vps-manager-windows-x64.exe
+vps-manager-windows-x64.exe.sha256
 ```
 
-Build agent dengan `cargo build --release --locked` pada Linux arsitektur yang sesuai, lalu ubah nama `target/release/vps-agent` menjadi nama asset di atas. Target minimum glibc mengikuti mesin build; gunakan Ubuntu 22.04 untuk paket dengan target Ubuntu 22.04 atau lebih baru. Binary ARM tidak dapat digantikan oleh binary x86_64.
+Agent x86_64 dibuild pada Ubuntu 22.04 (glibc 2.35+); aarch64 dibuild native pada Ubuntu 24.04 ARM (glibc 2.39+). Binary ini bukan untuk Alpine/musl. Windows memerlukan Windows x64 dan WebView2; MSI adalah jalur instalasi aplikasi, sedangkan EXE tersedia sebagai binary terpisah.
 
-Di Windows, pasang Tauri CLI (`cargo install tauri-cli --version "^2" --locked`), jalankan `npm install` lalu `npm run tauri build` di `client/`. Salin hasil dari `src-tauri/target/release/bundle/msi/` dan beri nama `vps-manager-windows-x64.msi`.
+Workflow memeriksa installer Windows dan menguji installer Linux dengan binary hasil build: service harus enabled dan aktif, binary tersedia di `/usr/local/bin/vps-agent`, API menerima token, serta token dan alamat bind bertahan setelah upgrade. Pemeriksaan ini berjalan pada runner sementara dengan systemd, bukan VPS produksi.
 
-Buat checksum dari paket akhir yang akan diterbitkan. Di Linux:
+## URL unduhan
 
-```bash
-sha256sum vps-agent-linux-x86_64 > vps-agent-linux-x86_64.sha256
+Default installer dan UI adalah:
+
+```text
+https://github.com/wignn/catly/releases/latest/download
 ```
 
-Di PowerShell:
+Untuk mengunci versi:
 
-```powershell
-(Get-FileHash ./vps-manager-windows-x64.msi -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii ./vps-manager-windows-x64.msi.sha256
+```text
+https://github.com/wignn/catly/releases/download/v0.1.0
 ```
 
-Checksum dapat berupa hash saja atau format `sha256sum` dengan nama file. Jangan gunakan checksum untuk paket yang masih akan diubah atau ditandatangani ulang.
+Unduh skrip, binary, dan checksum dari folder versi yang sama. URL `latest` mengikuti rilis stabil terbaru; gunakan URL versi untuk instalasi yang harus dapat diulang. URL unduhan baru tersedia setelah rilis berhasil diterbitkan.
 
-## Sebelum diterbitkan
+Checksum dibuat dari paket final. Checksum dari server yang sama mendeteksi kerusakan unduhan dan bukan tanda tangan penerbit. Paket Windows belum ditandatangani; kredensial signing tidak disimpan di repository.
 
-- Jalankan build frontend dan pemeriksaan installer.
-- Uji installer Linux pada VPS uji bersih; pastikan token bertahan setelah instalasi kedua.
-- Uji MSI di Windows x64 dan uji koneksi, metrik, serta PTY terhadap agent.
-- Terbitkan seluruh file pada folder versi yang sama melalui HTTPS. Ganti URL contoh di README atau masukkan URL tersebut di UI.
-
-Untuk GitHub Releases, URL folder berbentuk `https://github.com/OWNER/REPO/releases/download/v0.1.0`. Unggah kedua installer sebagai release assets bersama paket dan checksum. Hindari mencampur skrip dari branch utama dengan binary dari versi berbeda.
-
-Paket Windows saat ini belum ditandatangani. Tambahkan code signing saat menyiapkan distribusi publik; sertifikat dan kredensial penandatanganan tidak disimpan di repository.
+Sebelum rilis untuk penggunaan luas, uji MSI pada Windows serta koneksi, metrik, dan terminal terhadap VPS Linux sungguhan.

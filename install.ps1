@@ -1,9 +1,10 @@
-# Windows x64. Set VPS_MANAGER_RELEASE_URL to the HTTPS release folder first.
+# Windows x64. VPS_MANAGER_RELEASE_URL can override the Catly release folder.
 & {
     $ErrorActionPreference = 'Stop'
     if ([Environment]::OSVersion.Platform -ne 'Win32NT') { throw 'Windows diperlukan.' }
     if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { throw 'Installer ini memerlukan Windows x64.' }
     $releaseUrl = $env:VPS_MANAGER_RELEASE_URL
+    if (-not $releaseUrl) { $releaseUrl = 'https://github.com/wignn/catly/releases/latest/download' }
     if ($releaseUrl -notmatch '^https://[a-zA-Z0-9.-]+(:[0-9]+)?(/[a-zA-Z0-9._~/-]*)?$') { throw 'Set VPS_MANAGER_RELEASE_URL ke folder rilis HTTPS yang tepercaya.' }
     $releaseUrl = $releaseUrl.TrimEnd('/')
     $installTemp = Join-Path ([IO.Path]::GetTempPath()) ('vps-manager-' + [Guid]::NewGuid().ToString('N'))

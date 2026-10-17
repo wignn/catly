@@ -18,6 +18,9 @@ PORT="${BIND##*:}"
 [[ ${#PORT} -le 5 ]] && (( 10#$PORT >= 1 && 10#$PORT <= 65535 )) || fail 'Port harus 1-65535.'
 WORK=$(mktemp -d)
 trap 'rm -rf -- "$WORK"' EXIT
+if [[ $# -eq 0 ]]; then
+  set -- --release-url 'https://github.com/wignn/catly/releases/latest/download'
+fi
 if [[ "${1:-}" == --release-url ]]; then
   RELEASE_URL="${2:-}"
   [[ "$RELEASE_URL" =~ ^https://[a-zA-Z0-9.-]+(:[0-9]+)?(/[a-zA-Z0-9._~/-]*)?$ ]] || fail 'URL rilis HTTPS tidak valid.'
@@ -49,6 +52,8 @@ fi
 chmod 600 /etc/vps-agent/token
 install -m 755 "$BIN_SRC" /opt/vps-agent/vps-agent.new
 mv -f /opt/vps-agent/vps-agent.new /opt/vps-agent/vps-agent
+install -d -m 755 /usr/local/bin
+ln -sfn /opt/vps-agent/vps-agent /usr/local/bin/vps-agent
 # Preserve the configured bind address on upgrades.
 if [[ ! -f /etc/vps-agent/environment || -n "${VPS_AGENT_BIND:-}" ]]; then
   printf 'VPS_AGENT_BIND=%s\n' "$BIND" > /etc/vps-agent/environment
@@ -79,7 +84,7 @@ systemctl enable vps-agent
 systemctl restart vps-agent
 sleep 1
 systemctl is-active --quiet vps-agent || fail 'Agent gagal berjalan. Periksa: journalctl -u vps-agent -n 50'
-printf '\nvps-agent aktif. Konfigurasi: /etc/vps-agent/environment\nToken untuk client:\n'
+printf '\nvps-agent aktif. Konfigurasi: /etc/vps-agent/environment\nBinary: /usr/local/bin/vps-agent\nToken untuk client:\n'
 cat /etc/vps-agent/token
 printf '\n\nToken lama dipertahankan saat upgrade.\n'
 printf 'Untuk Tailscale, set VPS_AGENT_BIND ke IP Tailscale:18710 di /etc/vps-agent/environment lalu restart service.\n'

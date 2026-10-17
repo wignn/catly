@@ -8,6 +8,7 @@ $global:vpsInstallerCheck_downloads = 0
 $global:vpsInstallerCheck_downloadFolder = ''
 function Invoke-WebRequest {
     param($Uri, $OutFile, [switch]$UseBasicParsing)
+    if ($global:vpsInstallerCheck_scenario -eq 'default-url' -and -not $Uri.StartsWith('https://github.com/wignn/catly/releases/latest/download/')) { throw 'Unexpected default release URL' }
     $global:vpsInstallerCheck_downloads++
     $global:vpsInstallerCheck_downloadFolder = Split-Path $OutFile
     if ($Uri.EndsWith('.sha256')) {
@@ -44,6 +45,7 @@ function Check-Scenario($scenario, $url, $expectedFailure, $expectedLaunches) {
     Write-Host "PASS: $scenario"
 }
 try {
+    Check-Scenario 'default-url' '' '' 1
     Check-Scenario 'invalid-url' 'http://insecure.example/release' 'HTTPS' 0
     Check-Scenario 'mismatch' 'https://release.example/v1' 'Checksum tidak cocok' 0
     Check-Scenario 'malformed' 'https://release.example/v1' 'Format checksum' 0

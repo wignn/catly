@@ -1,0 +1,111 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build agent
+        working-directory: agent
+        run: cargo build --release --locked
+      - name: Check installer syntax
+        run: |
+          bash -n agent/install.sh
+          bash -n e2e/linux-install-check.sh
+      - name: Test service installation and upgrade
+        run: sudo bash e2e/linux-install-check.sh agent/target/release/vps-agent
+      - name: Package agent and installer
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p artifacts
+          cp agent/target/release/vps-agent "artifacts/vps-agent-linux-$ARCH"
+          cd artifacts
+          sha256sum "vps-agent-linux-$ARCH" > "vps-agent-linux-$ARCH.sha256"
+          cp ../agent/install.sh .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install frontend dependencies
+        working-directory: client
+        run: bun install --frozen-lockfile
+      - name: Check Windows installer
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File e2e/install-check.ps1
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version '^2' --locked
+      - name: Build Windows application and MSI
+        working-directory: client
+        run: npm run tauri build
+      - name: Package Windows binaries and installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory artifacts | Out-Null
+          $msi = @(Get-ChildItem client/src-tauri/target/release/bundle/msi/*.msi)
+          if ($msi.Count -ne 1) { throw 'Expected exactly one MSI' }
+          Copy-Item $msi[0].FullName artifacts/vps-manager-windows-x64.msi
+          Copy-Item client/src-tauri/target/release/vps-manager.exe artifacts/vps-manager-windows-x64.exe
+          foreach ($file in Get-ChildItem artifacts -File) {
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            Set-Content -Encoding ascii -LiteralPath ($file.FullName + '.sha256') -Value $hash
+          }
+          Copy-Item install.ps1 artifacts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: artifacts/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish binaries, checksums and installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" artifacts/* --verify-tag --generate-notes

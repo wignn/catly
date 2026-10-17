@@ -4,18 +4,24 @@ Konsol desktop Windows untuk mengelola koneksi VPS, memantau resource, dan membu
 
 ## Instalasi
 
-Installer memerlukan folder rilis HTTPS berisi paket dan checksum (lihat [panduan rilis](docs/RELEASING.md)). Ganti URL contoh dengan lokasi rilis milikmu; proyek ini belum menyediakan hosting unduhan resmi.
+Binary, installer, dan checksum diterbitkan lewat [GitHub Releases Catly](https://github.com/wignn/catly/releases) oleh CI/CD (lihat [panduan rilis](docs/RELEASING.md)). URL berikut menggunakan rilis terbaru dan tersedia setelah tag `v*` pertama berhasil dibuild dan diterbitkan.
 
 ### Agent Linux
 
-Ubuntu/Debian dengan systemd, `curl`, dan coreutils. Mendukung x86_64 dan aarch64 sesuai binary yang diterbitkan.
+Linux dengan systemd, `curl`, dan coreutils. Binary x86_64 memerlukan glibc 2.35+ (Ubuntu 22.04+); aarch64 memerlukan glibc 2.39+ (Ubuntu 24.04+).
 
 ```bash
-RELEASE_URL='https://HOST-KAMU/releases/v0.1.0'
-curl -fsSL "$RELEASE_URL/install.sh" | sudo bash -s -- --release-url "$RELEASE_URL"
+curl -fsSL https://github.com/wignn/catly/releases/latest/download/install.sh | sudo bash
 ```
 
-Installer memeriksa SHA-256, memasang service, dan mencetak token. Saat upgrade, token dan alamat bind yang sudah dikonfigurasi dipertahankan. Instalasi baru hanya mendengarkan di `127.0.0.1:18710`.
+Installer memilih binary sesuai arsitektur, memeriksa SHA-256, memasang binary di `/opt/vps-agent/vps-agent` dengan symlink `/usr/local/bin/vps-agent`, lalu mengaktifkan dan menjalankan service `vps-agent` otomatis saat boot. Installer juga mencetak token. Saat upgrade, token dan alamat bind yang sudah dikonfigurasi dipertahankan. Instalasi baru hanya mendengarkan di `127.0.0.1:18710`.
+
+Untuk versi tertentu, gunakan URL versi yang sama bagi skrip dan binary:
+
+```bash
+RELEASE_URL='https://github.com/wignn/catly/releases/download/v0.1.0'
+curl -fsSL "$RELEASE_URL/install.sh" | sudo bash -s -- --release-url "$RELEASE_URL"
+```
 
 Untuk menghubungkan client melalui Tailscale, edit `/etc/vps-agent/environment`:
 
@@ -30,11 +36,10 @@ Gunakan IP Tailscale VPS milikmu, kemudian jalankan `sudo systemctl restart vps-
 Windows x64 dengan WebView2. Jalankan di PowerShell:
 
 ```powershell
-$env:VPS_MANAGER_RELEASE_URL='https://HOST-KAMU/releases/v0.1.0'
-irm "$env:VPS_MANAGER_RELEASE_URL/install.ps1" | iex
+irm https://github.com/wignn/catly/releases/latest/download/install.ps1 | iex
 ```
 
-Installer mengunduh MSI, memeriksa SHA-256, lalu membuka wizard instalasi. Jika dibatalkan, installer melaporkan kegagalan tanpa mengklaim instalasi berhasil. Perintah `curl` dan `irm` juga tersedia di halaman Server setelah URL rilis diisi.
+Installer mengunduh MSI, memeriksa SHA-256, lalu membuka wizard instalasi. Jika dibatalkan, installer melaporkan kegagalan tanpa mengklaim instalasi berhasil. Perintah `curl` dan `irm` juga tersedia di halaman Server dengan URL Catly sebagai default. Untuk memilih versi lain, set `$env:VPS_MANAGER_RELEASE_URL` ke folder rilis versi tersebut sebelum menjalankan skrip dari folder yang sama.
 
 Hanya jalankan skrip dari penerbit yang kamu percaya. Untuk meninjau skrip terlebih dahulu, unduh `install.sh` atau `install.ps1` dari folder rilis, baca isinya, lalu jalankan secara lokal. Checksum dari server yang sama mendeteksi kerusakan unduhan; checksum bukan tanda tangan penerbit.
 
