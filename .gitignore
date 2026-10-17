@@ -1,0 +1,10 @@
+﻿**/node_modules/
+**/target/
+**/dist/
+**/.npm-cache/
+.browser-test/
+*.log
+.env
+.env.*
+!.env.example
+agent/token
