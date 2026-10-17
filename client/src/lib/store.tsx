@@ -11,10 +11,12 @@ interface State {
   activeTabId: string | null;
   view: View;
   ready: boolean;
+  loadError: string | null;
 }
 
 type Action =
   | { type: "init"; servers: Server[]; tabs: TermTab[] }
+  | { type: "init-error"; message: string }
   | { type: "add-server"; server: Server }
   | { type: "remove-server"; id: string }
   | { type: "set-active-server"; id: string }
@@ -38,9 +40,11 @@ function newTab(serverId: string, servers: Server[]): TermTab {
 function reducer(st: State, a: Action): State {
   switch (a.type) {
     case "init":
-      return { ...st, servers: a.servers, tabs: a.tabs, ready: true,
+      return { ...st, servers: a.servers, tabs: a.tabs, ready: true, loadError: null,
         activeServerId: a.servers[0]?.id ?? null,
         activeTabId: a.tabs[0]?.id ?? null };
+    case "init-error":
+      return { ...st, ready: false, loadError: a.message };
     case "add-server":
       return { ...st, servers: [...st.servers.filter((s) => s.id !== a.server.id), a.server] };
     case "remove-server":
@@ -85,14 +89,20 @@ const Ctx = createContext<{ state: State; dispatch: React.Dispatch<Action> } | n
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
-    servers: [], activeServerId: null, tabs: [], activeTabId: null, view: "servers", ready: false,
+    servers: [], activeServerId: null, tabs: [], activeTabId: null, view: "servers", ready: false, loadError: null,
   });
 
   useEffect(() => {
+    let alive = true;
     (async () => {
-      const [servers, tabs] = await Promise.all([loadServers(), loadTabs()]);
-      dispatch({ type: "init", servers, tabs });
+      try {
+        const [servers, tabs] = await Promise.all([loadServers(), loadTabs()]);
+        if (alive) dispatch({ type: "init", servers, tabs });
+      } catch (e) {
+        if (alive) dispatch({ type: "init-error", message: e instanceof Error ? e.message : "Penyimpanan profil tidak dapat dibuka." });
+      }
     })();
+    return () => { alive = false; };
   }, []);
 
   // persistensi tab (debounce sederhana)

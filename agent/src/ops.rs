@@ -1,14 +1,14 @@
 //! Operasi sekali-jalan: info, exec, proses, service systemd, jaringan, file, log.
 
 use crate::{TokenQuery, VERSION};
+use axum::extract::ws::{Message, WebSocket};
 use axum::{
-    Json,
     body::Body,
     extract::{Multipart, Query, State},
-    http::{StatusCode, header},
+    http::{header, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
-use axum::extract::ws::{Message, WebSocket};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::os::unix::fs::PermissionsExt;
@@ -205,7 +205,11 @@ struct ServiceInfo {
 pub async fn list_services() -> Json<serde_json::Value> {
     let out = Command::new("systemctl")
         .args([
-            "list-units", "--type=service", "--all", "--no-legend", "--no-pager",
+            "list-units",
+            "--type=service",
+            "--all",
+            "--no-legend",
+            "--no-pager",
         ])
         .output()
         .await;
@@ -237,7 +241,7 @@ pub struct ServiceActionReq {
 }
 
 pub async fn service_action(Json(req): Json<ServiceActionReq>) -> Json<serde_json::Value> {
-    if !req.unit.ends_with(".service") || req.unit.contains("..") || req.unit.contains('/') {
+    if !crate::security_policy::service_unit(&req.unit) {
         return Json(serde_json::json!({ "ok": false, "error": "nama unit tidak valid" }));
     }
     let action = match req.action.as_str() {
@@ -246,7 +250,10 @@ pub async fn service_action(Json(req): Json<ServiceActionReq>) -> Json<serde_jso
     };
     let res = tokio::time::timeout(
         std::time::Duration::from_secs(60),
-        Command::new("systemctl").arg(action).arg(&req.unit).output(),
+        Command::new("systemctl")
+            .arg(action)
+            .arg(&req.unit)
+            .output(),
     )
     .await;
     match res {
@@ -286,12 +293,7 @@ async fn run(cmd: &str, args: &[&str]) -> String {
 
 fn proc_name(parts: &[&str]) -> String {
     // format ss: users:(("nginx",pid=123,fd=3),("nginx",pid=124,fd=3))
-    parts
-        .join(" ")
-        .split('"')
-        .nth(1)
-        .unwrap_or("")
-        .to_string()
+    parts.join(" ").split('"').nth(1).unwrap_or("").to_string()
 }
 
 /// `ss -tlnp` / `ss -ulnp` → kolom: State Recv-Q Send-Q Local Peer Process
@@ -375,16 +377,124 @@ pub async fn net_info() -> Json<serde_json::Value> {
 
 // ---------------------------------------------------------------- file manager
 
+fn read_limited(path: &std::path::Path, limit: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut data = Vec::new();
+    std::fs::File::open(path)?.take(limit + 1).read_to_end(&mut data)?;
+    if data.len() as u64 > limit { return Err(std::io::Error::other("file size limit exceeded")); }
+    Ok(data)
+}
+
+fn safe_write(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::{
+        fs::{File, OpenOptions},
+        io::{Read, Write},
+        os::{
+            fd::AsRawFd,
+            unix::fs::{MetadataExt, OpenOptionsExt},
+        },
+    };
+    if data.len() > 32 * 1024 * 1024 {
+        return Err(std::io::Error::other("file exceeds 32MB"));
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("missing parent"))?;
+    for ancestor in parent.ancestors() {
+        if std::fs::symlink_metadata(ancestor)?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(std::io::Error::other("symlink directory rejected"));
+        }
+    }
+    // Anchor all subsequent operations to the opened directory, even if its name changes.
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(0x20000 | 0x10000)
+        .open(parent)?;
+    let anchored = std::path::PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
+    let name = path
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("missing filename"))?;
+    let dest = anchored.join(name);
+    let original = match OpenOptions::new()
+        .read(true)
+        .custom_flags(0x20000)
+        .open(&dest)
+    {
+        Ok(file) => {
+            if !file.metadata()?.is_file() {
+                return Err(std::io::Error::other("not a regular file"));
+            }
+            Some(file)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    let nonce = crate::security::random_token()?;
+    let temp = anchored.join(format!(".vps-agent-{nonce}.tmp"));
+    let result = (|| {
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temp)?;
+        if let Some(mut original) = original {
+            let md = original.metadata()?;
+            if md.len() > 32 * 1024 * 1024 {
+                return Err(std::io::Error::other("original exceeds 32MB backup limit"));
+            }
+            let backup = anchored.join(format!("{}.vps-backup-{nonce}", name.to_string_lossy()));
+            let mut saved = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(backup)?;
+            let mut bytes = Vec::new();
+            original
+                .by_ref()
+                .take(32 * 1024 * 1024 + 1)
+                .read_to_end(&mut bytes)?;
+            if bytes.len() > 32 * 1024 * 1024 {
+                return Err(std::io::Error::other("original grew beyond backup limit"));
+            }
+            saved.write_all(&bytes)?;
+            saved.sync_all()?;
+            std::os::unix::fs::chown(&temp, Some(md.uid()), Some(md.gid()))?;
+            output.set_permissions(md.permissions())?;
+        }
+        output.write_all(data)?;
+        output.sync_all()?;
+        // rename replaces the directory entry, never follows a symlink at the destination.
+        std::fs::rename(&temp, dest)?;
+        File::open(&anchored)?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temp);
+    }
+    result
+}
+
 fn clean_path(raw: &str) -> Result<std::path::PathBuf, Response> {
     let p = std::path::Path::new(raw);
     if !p.is_absolute() {
-        return Err((StatusCode::from_u16(403).unwrap(),
-            Json(serde_json::json!({"error":"path harus absolut"}))).into_response());
+        return Err((
+            StatusCode::from_u16(403).unwrap(),
+            Json(serde_json::json!({"error":"path harus absolut"})),
+        )
+            .into_response());
     }
     // tolak komponen parent-dir agar tidak lolos
-    if p.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
-        return Err((StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error":"path tidak valid"}))).into_response());
+    if p.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error":"path tidak valid"})),
+        )
+            .into_response());
     }
     Ok(p.to_path_buf())
 }
@@ -408,12 +518,16 @@ struct FileEntry {
 pub async fn list_files(Query(q): Query<PathQuery>) -> Result<Json<serde_json::Value>, Response> {
     let path = clean_path(&q.path)?;
     let read = std::fs::read_dir(&path).map_err(|e| {
-        (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response()
     })?;
     let users = Users::new();
     let mut entries = Vec::new();
-    for e in read.flatten() {
-        let md = match e.metadata() {
+    for e in read.flatten().take(5000) {
+        let md = match std::fs::symlink_metadata(e.path()) {
             Ok(m) => m,
             Err(_) => continue,
         };
@@ -442,23 +556,37 @@ pub async fn list_files(Query(q): Query<PathQuery>) -> Result<Json<serde_json::V
     }
     let _ = users;
     entries.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
-    Ok(Json(serde_json::json!({ "path": path.to_string_lossy(), "entries": entries })))
+    Ok(Json(
+        serde_json::json!({ "path": path.to_string_lossy(), "entries": entries }),
+    ))
 }
 
 pub async fn read_file(Query(q): Query<PathQuery>) -> Result<Json<serde_json::Value>, Response> {
     let path = clean_path(&q.path)?;
-    let data = std::fs::read(&path).map_err(|e| {
-        (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+    let data = read_limited(&path, 2 * 1024 * 1024).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response()
     })?;
     if data.len() > 2 * 1024 * 1024 {
-        return Err((StatusCode::from_u16(413).unwrap(),
-            Json(serde_json::json!({"error":"file terlalu besar (>2MB), pakai download"}))).into_response());
+        return Err((
+            StatusCode::from_u16(413).unwrap(),
+            Json(serde_json::json!({"error":"file terlalu besar (>2MB), pakai download"})),
+        )
+            .into_response());
     }
     let content = String::from_utf8(data).map_err(|_| {
-        (StatusCode::from_u16(415).unwrap(),
-            Json(serde_json::json!({"error":"file biner, pakai download"}))).into_response()
+        (
+            StatusCode::from_u16(415).unwrap(),
+            Json(serde_json::json!({"error":"file biner, pakai download"})),
+        )
+            .into_response()
     })?;
-    Ok(Json(serde_json::json!({ "path": q.path, "content": content })))
+    Ok(Json(
+        serde_json::json!({ "path": q.path, "content": content }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -469,17 +597,24 @@ pub struct WriteReq {
 
 pub async fn write_file(Json(req): Json<WriteReq>) -> Result<Json<serde_json::Value>, Response> {
     let path = clean_path(&req.path)?;
-    std::fs::write(&path, req.content).map_err(|e| {
-        (StatusCode::from_u16(500).unwrap(),
-            Json(serde_json::json!({"error": e.to_string()}))).into_response()
+    safe_write(&path, req.content.as_bytes()).map_err(|e| {
+        (
+            StatusCode::from_u16(500).unwrap(),
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response()
     })?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 pub async fn download_file(Query(q): Query<PathQuery>) -> Result<Response, Response> {
     let path = clean_path(&q.path)?;
-    let data = std::fs::read(&path).map_err(|e| {
-        (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e.to_string()}))).into_response()
+    let data = read_limited(&path, 32 * 1024 * 1024).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response()
     })?;
     let name = path
         .file_name()
@@ -501,13 +636,19 @@ pub async fn upload_file(
 ) -> Result<Json<serde_json::Value>, Response> {
     let dir = clean_path(&q.path)?;
     if !dir.is_dir() {
-        return Err((StatusCode::from_u16(400).unwrap(),
-            Json(serde_json::json!({"error":"path harus direktori"}))).into_response());
+        return Err((
+            StatusCode::from_u16(400).unwrap(),
+            Json(serde_json::json!({"error":"path harus direktori"})),
+        )
+            .into_response());
     }
     let mut saved = Vec::new();
     while let Some(field) = multipart.next_field().await.map_err(|e| {
-        (StatusCode::from_u16(400).unwrap(),
-            Json(serde_json::json!({"error": e.to_string()}))).into_response()
+        (
+            StatusCode::from_u16(400).unwrap(),
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response()
     })? {
         let name = field
             .file_name()
@@ -518,13 +659,19 @@ pub async fn upload_file(
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "upload.bin".into());
         let data = field.bytes().await.map_err(|e| {
-            (StatusCode::from_u16(400).unwrap(),
-                Json(serde_json::json!({"error": e.to_string()}))).into_response()
+            (
+                StatusCode::from_u16(400).unwrap(),
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+                .into_response()
         })?;
         let dest = dir.join(&name);
-        std::fs::write(&dest, &data).map_err(|e| {
-            (StatusCode::from_u16(500).unwrap(),
-                Json(serde_json::json!({"error": e.to_string()}))).into_response()
+        safe_write(&dest, &data).map_err(|e| {
+            (
+                StatusCode::from_u16(500).unwrap(),
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+                .into_response()
         })?;
         saved.push(name);
     }
@@ -540,8 +687,16 @@ pub struct LogsQuery {
     pub unit: String,
 }
 
-pub async fn stream_logs(mut socket: WebSocket, unit: String) {
-    if !unit.ends_with(".service") || unit.contains("..") || unit.contains('/') {
+pub async fn stream_logs(
+    mut socket: WebSocket,
+    unit: String,
+    state: crate::AppState,
+    token: String,
+) {
+    if state.security.lock().unwrap().role(&token).map(|r| r.0) != Some("admin") {
+        return;
+    }
+    if !crate::security_policy::service_unit(&unit) {
         return;
     }
     let mut child = match Command::new("journalctl")
@@ -552,10 +707,14 @@ pub async fn stream_logs(mut socket: WebSocket, unit: String) {
         Ok(c) => c,
         Err(_) => return,
     };
+    let mut auth_tick = tokio::time::interval(std::time::Duration::from_secs(1));
     let stdout = child.stdout.take().unwrap();
     let mut lines = BufReader::new(stdout).lines();
     loop {
         tokio::select! {
+            _ = auth_tick.tick() => {
+                if state.security.lock().unwrap().role(&token).map(|r| r.0) != Some("admin") { break; }
+            }
             line = lines.next_line() => {
                 match line {
                     Ok(Some(l)) => {
@@ -574,4 +733,32 @@ pub async fn stream_logs(mut socket: WebSocket, unit: String) {
         }
     }
     let _ = child.kill().await;
+}
+
+#[cfg(test)]
+mod file_tests {
+    use super::safe_write;
+    #[test]
+    fn replacement_preserves_original_and_rejects_symlinks() {
+        let dir = std::env::temp_dir().join(format!(
+            "vps-files-{}",
+            crate::security::random_token().unwrap()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("file");
+        std::fs::write(&path, b"original").unwrap();
+        safe_write(&path, b"replacement").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        let backup = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .find(|e| e.file_name().to_string_lossy().contains(".vps-backup-"))
+            .unwrap();
+        assert_eq!(std::fs::read(backup.path()).unwrap(), b"original");
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert!(safe_write(&link, b"attack").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

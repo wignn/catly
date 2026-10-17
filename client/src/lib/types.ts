@@ -73,7 +73,7 @@ export interface TermTab {
   panes: TabPane[];
 }
 
-export type View = "servers" | "dashboard" | "terminal";
+export type View = "servers" | "dashboard" | "terminal" | "monitoring" | "operations" | "files";
 
 export function fmtBytes(b: number): string {
   if (b <= 0) return "0 B";

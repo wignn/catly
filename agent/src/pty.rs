@@ -4,7 +4,7 @@
 
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::StreamExt;
-use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::sync::{Arc, Mutex};
@@ -27,7 +27,21 @@ enum ServerMsg<'a> {
     Exit { code: i32 },
 }
 
-pub async fn handle(socket: WebSocket, cols: u16, rows: u16) {
+pub async fn handle(
+    socket: WebSocket,
+    cols: u16,
+    rows: u16,
+    state: crate::AppState,
+    token: String,
+) {
+    if state.security.lock().unwrap().role(&token).map(|r| r.0) != Some("admin") {
+        return;
+    }
+    state
+        .security
+        .lock()
+        .unwrap()
+        .record("WS", "/ws/pty", 101, "admin");
     let mut socket = socket;
 
     let pty_system = native_pty_system();
@@ -105,6 +119,7 @@ pub async fn handle(socket: WebSocket, cols: u16, rows: u16) {
             msg = socket.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
+                        if state.security.lock().unwrap().role(&token).map(|r| r.0) != Some("admin") { break; }
                         if let Ok(cm) = serde_json::from_str::<ClientMsg>(&text) {
                             match cm.t.as_str() {
                                 "input" => {
@@ -139,6 +154,7 @@ pub async fn handle(socket: WebSocket, cols: u16, rows: u16) {
                 }
             }
             _ = exit_interval.tick() => {
+                if state.security.lock().unwrap().role(&token).map(|r| r.0) != Some("admin") { break; }
                 match child.try_wait() {
                     Ok(Some(status)) => {
                         let msg = serde_json::to_string(&ServerMsg::Exit { code: status.exit_code() as i32 }).unwrap();

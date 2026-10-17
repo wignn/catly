@@ -1,8 +1,8 @@
 //! Pengambilan metrik sistem: CPU, load, memori, swap, disk, jaringan.
 
 use crate::AppState;
-use axum::{Json, extract::State};
 use axum::extract::ws::{Message, WebSocket};
+use axum::{extract::State, Json};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -150,10 +150,13 @@ pub async fn http_metrics(State(state): State<AppState>) -> Json<MetricsSnapshot
 }
 
 /// Stream metrik tiap 1 detik via WebSocket.
-pub async fn stream_metrics(mut socket: WebSocket, state: AppState) {
+pub async fn stream_metrics(mut socket: WebSocket, state: AppState, token: String) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
         interval.tick().await;
+        if state.security.lock().unwrap().role(&token).is_none() {
+            break;
+        }
         let snap = {
             let mut sys = state.sys.lock().unwrap();
             let mut prev = state.net_prev.lock().unwrap();

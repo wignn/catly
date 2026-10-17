@@ -2,10 +2,14 @@
 import type { MetricsSnapshot, Server, ServerInfo } from "./types";
 
 export class AgentClient {
-  constructor(
-    public server: Server,
-    public baseUrl?: string,
-  ) {}
+  public server: Server;
+  public baseUrl?: string;
+  public timeoutMs: number;
+  constructor(server: Server, baseUrl?: string, timeoutMs = 10000) {
+    this.server = server;
+    this.baseUrl = baseUrl;
+    this.timeoutMs = timeoutMs;
+  }
 
   get base(): string {
     if (this.baseUrl) return this.baseUrl;
@@ -14,10 +18,6 @@ export class AgentClient {
     // kalau tidak, pakai http://host:port.
     if (/^https?:\/\//i.test(h)) return h.replace(/\/+$/, "");
     return `http://${h}:${this.server.port}`;
-  }
-
-  private headers(): HeadersInit {
-    return { Authorization: `Bearer ${this.server.token}` };
   }
 
   private wsUrl(path: string, params: Record<string, string | number> = {}): string {
@@ -29,18 +29,45 @@ export class AgentClient {
     return `${wsBase}${path}?${qs}`;
   }
 
-  private async req<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${this.base}${path}`, {
+  async request<T>(path: string, init?: RequestInit, timeoutMs = this.timeoutMs): Promise<T> {
+    if (!path.startsWith("/api/") || path.includes("..") || path.includes("#")) throw new Error("Path API tidak sah");
+    const target = `${this.base}${path}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const abort = () => controller.abort();
+    init?.signal?.addEventListener("abort", abort, { once: true });
+    if (init?.signal?.aborted) controller.abort();
+    try {
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${this.server.token}`);
+    const res = await fetch(target, {
       ...init,
-      headers: { ...this.headers(), ...(init?.headers ?? {}) },
+      headers,
+      signal: controller.signal,
     });
-    if (res.status === 401) throw new Error("Token salah / tidak sah (401)");
+    if (res.status === 401) throw new Error(`HTTP 401: token salah / tidak sah. Periksa token profil. Target: ${target}`);
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
+      throw new Error(`HTTP ${res.status} dari ${target}. ${res.status === 403 ? "Token tidak diizinkan untuk tindakan ini." : "Periksa status agent dan coba lagi."}`);
     }
     return (await res.json()) as T;
+    } catch (error) {
+      if (init?.signal?.aborted) throw new Error(`Permintaan dibatalkan. Target: ${target}`);
+      if (controller.signal.aborted) throw new Error(`Timeout ${timeoutMs} ms. Target: ${target}. Periksa alamat, jaringan, dan bind agent.`);
+      if (error instanceof TypeError) throw new Error(`Jaringan gagal. Target: ${target}. Periksa alamat/port, agent aktif, bind, dan jalur jaringan/firewall. Browser juga dapat memblokir HTTPS campuran, sertifikat atau CORS; penyebab tepat belum diketahui.`);
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      init?.signal?.removeEventListener("abort", abort);
+    }
   }
+
+  private req<T>(path: string, init?: RequestInit): Promise<T> { return this.request<T>(path, init); }
+
+  services(): Promise<{ services: ServiceInfo[] }> { return this.request("/api/services"); }
+  serviceAction(unit: string, action: "start" | "stop" | "restart"): Promise<{ok: boolean; error?: string}> {
+    return this.request("/api/services/action", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({unit, action})}, 65000);
+  }
+  logsSocket(unit: string): WebSocket { return new WebSocket(this.wsUrl("/ws/logs", {unit})); }
 
   info(): Promise<ServerInfo> {
     return this.req<ServerInfo>("/api/info");
@@ -59,11 +86,11 @@ export class AgentClient {
   }
 
   exec(command: string, timeout_secs = 30): Promise<{ stdout: string; stderr: string; exit_code: number; timed_out: boolean }> {
-    return this.req("/api/exec", {
+    return this.request("/api/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command, timeout_secs }),
-    });
+    }, Math.max(this.timeoutMs, (Math.max(1, Math.min(120, timeout_secs)) + 5) * 1000));
   }
 
   processes(limit = 200, sort = "cpu"): Promise<{ processes: import("./types").ProcInfo[] }> {
@@ -78,3 +105,5 @@ export class AgentClient {
     });
   }
 }
+
+export interface ServiceInfo { unit: string; description: string; active: string; sub: string; load: string }

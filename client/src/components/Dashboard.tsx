@@ -5,6 +5,7 @@ import { saveMetricSample } from "../lib/db";
 import { useStore } from "../lib/store";
 import type { MetricsSnapshot, Server } from "../lib/types";
 import { fmtBytes, fmtRate } from "../lib/types";
+import { recordConnection } from "../lib/monitoring";
 
 function Spark({ data, color }: { data: number[]; color: string }) {
   const w = 120, h = 32;
@@ -27,7 +28,7 @@ function Bar({ pct, color }: { pct: number; color: string }) {
 function ServerCard({ server }: { server: Server }) {
   const [snap, setSnap] = useState<MetricsSnapshot | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [info, setInfo] = useState<{ hostname: string; os: string; uptime: number } | null>(null);
+  const [info, setInfo] = useState<{ hostname: string; os: string; uptime: number; version: string; latency: number } | null>(null);
   const hist = useRef<number[]>([]);
   const { dispatch } = useStore();
 
@@ -37,19 +38,27 @@ function ServerCard({ server }: { server: Server }) {
     let ws: WebSocket | null = null;
     let lastSaved = 0;
     let retry: ReturnType<typeof setTimeout>;
+    setSnap(null); setErr(null); setInfo(null); hist.current=[];
 
+    const started=performance.now();
     client.info().then((i) => {
-      if (alive) setInfo({ hostname: i.hostname, os: i.os, uptime: i.uptime_secs });
-    }).catch(() => {});
+      if (alive) {
+        const latency=Math.round(performance.now()-started);
+        setInfo({ hostname: i.hostname, os: i.os, uptime: i.uptime_secs, version:i.agent_version, latency });
+        recordConnection(server.id,{online:true,lastSeen:Date.now(),version:i.agent_version,latency,error:undefined});
+      }
+    }).catch(e => {if(alive)setErr((e as Error).message);});
 
     const connect = () => {
       if (!alive) return;
       try { ws = client.metricsSocket(); } catch { schedule(); return; }
       ws.onmessage = (ev) => {
+        if (!alive) return;
         try {
           const s = JSON.parse(ev.data as string) as MetricsSnapshot;
           setSnap(s);
           setErr(null);
+          recordConnection(server.id,{online:true,lastSeen:Date.now(),error:undefined});
           hist.current = [...hist.current.slice(-59), s.cpu.total];
           // simpan riwayat ke SQLite max 1x per 5 detik
           if (Date.now() - lastSaved > 5000) {
@@ -60,8 +69,11 @@ function ServerCard({ server }: { server: Server }) {
           }
         } catch { /* abaikan */ }
       };
-      ws.onclose = () => { if (alive) { setErr("terputus — mencoba lagi…"); schedule(); } };
-      ws.onerror = () => { if (alive) setErr("tidak bisa terhubung ke agent"); };
+      ws.onclose = () => { if (alive) { setErr(previous => previous ?? `Terputus dari ${client.base}/ws/metrics — mencoba lagi…`); schedule(); } };
+      ws.onerror = () => { if (alive) {
+        setErr(`WebSocket gagal: ${client.base}/ws/metrics. Periksa token, agent, jaringan, dan HTTPS; browser tidak melaporkan penyebab tepat.`);
+        void client.info().catch(e=>{if(alive)setErr((e as Error).message);});
+      } };
     };
     const schedule = () => { retry = setTimeout(connect, 3000); };
     connect();
@@ -79,7 +91,7 @@ function ServerCard({ server }: { server: Server }) {
       <div className="card-head">
         <div>
           <div className="card-title">{server.name}</div>
-          <div className="card-sub">{info ? `${info.hostname} · ${info.os}` : `${server.host}:${server.port}`}</div>
+          <div className="card-sub">{info ? `${info.hostname} · ${info.os} · v${info.version} · ${info.latency} ms` : new AgentClient(server).base}</div>
         </div>
         <span className="connection-state"><span className={"dot " + (err ? "bad" : snap ? "ok" : "")} />{err ? "Terputus" : snap ? "Terhubung" : "Menghubungkan"}</span>
       </div>

@@ -2,6 +2,7 @@
 // - Di Tauri: SQLite via tauri-plugin-sql (profil server, layout tab, riwayat metrik).
 // - Di browser biasa (npm run dev tanpa Tauri): fallback localStorage agar UI tetap bisa dites.
 import Database from "@tauri-apps/plugin-sql";
+import { invoke } from "@tauri-apps/api/core";
 import type { Server, TermTab } from "./types";
 
 let db: Database | null = null;
@@ -39,9 +40,9 @@ function ready(): Promise<boolean> {
           )`);
         db = d;
         return true;
-      } catch {
+      } catch (error) {
         db = null;
-        return false; // bukan di dalam Tauri / plugin gagal
+        throw new Error(`Desktop storage unavailable: ${String(error)}`);
       }
     })();
   }
@@ -61,30 +62,58 @@ function webSet(key: string, val: unknown): void {
 }
 
 export async function loadServers(): Promise<Server[]> {
-  if (await ready()) return db!.select<Server[]>("SELECT * FROM servers ORDER BY name");
-  return webGet<Server[]>("servers", []);
+  if (await ready()) {
+    const servers = await db!.select<Server[]>("SELECT * FROM servers ORDER BY name");
+    for (const server of servers) {
+      if (server.token) {
+        await storeToken(server.id, server.token);
+        await db!.execute("UPDATE servers SET token='' WHERE id=?", [server.id]);
+      }
+      server.token = await invoke<string | null>("credential_get", { id: server.id }) ?? "";
+    }
+    return servers;
+  }
+  return browserServers();
+}
+
+const sessionTokens = new Map<string, string>();
+function browserServers(): Server[] {
+  const servers = webGet<Server[]>("servers", []);
+  // Copy every legacy token into this tab before removing any persisted secret.
+  for (const server of servers) if (server.token) sessionTokens.set(server.id, server.token);
+  if (servers.some(s => s.token)) webSet("servers", servers.map(s => ({ ...s, token: "" })));
+  return servers.map(s => ({ ...s, token: sessionTokens.get(s.id) ?? "" }));
+}
+async function storeToken(id: string, token: string): Promise<void> {
+  await invoke("credential_set", { id, token });
+  if (await invoke<string | null>("credential_get", { id }) !== token) throw new Error("Credential verification failed; original token retained");
 }
 
 export async function saveServer(s: Server): Promise<void> {
   if (await ready()) {
+    await storeToken(s.id, s.token);
     await db!.execute(
       "INSERT INTO servers (id,name,host,port,token) VALUES (?,?,?,?,?) " +
         "ON CONFLICT(id) DO UPDATE SET name=excluded.name,host=excluded.host,port=excluded.port,token=excluded.token",
-      [s.id, s.name, s.host, s.port, s.token],
+      [s.id, s.name, s.host, s.port, ""],
     );
     return;
   }
-  const all = webGet<Server[]>("servers", []).filter((x) => x.id !== s.id);
-  webSet("servers", [...all, s]);
+  const all = browserServers().filter((x) => x.id !== s.id);
+  sessionTokens.set(s.id, s.token);
+  webSet("servers", [...all, s].map(server => ({ ...server, token: "" })));
 }
 
 export async function deleteServer(id: string): Promise<void> {
   if (await ready()) {
     await db!.execute("DELETE FROM servers WHERE id=?", [id]);
     await db!.execute("DELETE FROM metric_history WHERE server_id=?", [id]);
+    await invoke("credential_delete", { id });
     return;
   }
-  webSet("servers", webGet<Server[]>("servers", []).filter((x) => x.id !== id));
+  const servers = browserServers().filter((x) => x.id !== id);
+  sessionTokens.delete(id);
+  webSet("servers", servers.map(server => ({ ...server, token: "" })));
 }
 
 export async function loadTabs(): Promise<TermTab[]> {
@@ -132,9 +161,25 @@ export async function saveMetricSample(
     await db!.execute("DELETE FROM metric_history WHERE ts < ?", [ts - 7 * 86400]);
     return;
   }
-  interface MetricRow { server_id: string; ts: number; cpu: number; mem_used: number; mem_total: number; rx_rate: number; tx_rate: number }
   const key = "metrics";
-  const all = webGet<MetricRow[]>(key, []);
+  const all = webGet<MetricRow[]>(key, []).filter(row => row.ts >= ts - 7 * 86400 &&
+    !(row.server_id === serverId && Math.floor(row.ts / 60) === Math.floor(ts / 60)));
   all.push({ server_id: serverId, ts, cpu, mem_used: memUsed, mem_total: memTotal, rx_rate: rxRate, tx_rate: txRate });
-  webSet(key, all.slice(-2000)); // batasi
+  // ponytail: browser retains one sample per minute per server; SQLite retains raw samples.
+  webSet(key, all);
+}
+
+export interface MetricRow { server_id: string; ts: number; cpu: number; mem_used: number; mem_total: number; rx_rate: number; tx_rate: number }
+
+export async function loadMetricHistory(serverId: string, since = Math.floor(Date.now() / 1000) - 7 * 86400): Promise<MetricRow[]> {
+  since = Math.max(Number.isFinite(since) ? since : 0, Math.floor(Date.now() / 1000) - 7 * 86400);
+  const bucket = Math.max(1, Math.ceil((Date.now() / 1000 - since + 1) / 2000));
+  if (await ready()) return db!.select<MetricRow[]>(
+    "SELECT server_id,MAX(ts) AS ts,AVG(cpu) AS cpu,AVG(mem_used) AS mem_used,AVG(mem_total) AS mem_total,AVG(rx_rate) AS rx_rate,AVG(tx_rate) AS tx_rate " +
+      "FROM metric_history WHERE server_id=? AND ts>=? GROUP BY server_id,CAST((ts-?)/? AS INTEGER) ORDER BY ts",
+    [serverId, since, since, bucket],
+  );
+  const rows = webGet<MetricRow[]>("metrics", []).filter(row => row.server_id === serverId && row.ts >= since).sort((a, b) => a.ts - b.ts);
+  if (rows.length <= 2000) return rows;
+  return Array.from({ length: 2000 }, (_, i) => rows[Math.floor(i * (rows.length - 1) / 1999)]);
 }

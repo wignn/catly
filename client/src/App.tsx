@@ -2,11 +2,17 @@ import { StoreProvider, useStore } from "./lib/store";
 import ServerList from "./components/ServerList";
 import Dashboard from "./components/Dashboard";
 import TerminalView from "./components/TerminalView";
+import Operations from "./components/Operations";
+import Monitoring from "./components/Monitoring";
+import { FileManager } from "./components/FileManager";
 import "./styles.css";
 
 function Shell() {
   const { state, dispatch } = useStore();
+  if (state.loadError) return <div className="empty" role="alert"><h2>Profil belum dapat dibuka</h2><p>{state.loadError}</p><p>Data asli dipertahankan. Periksa akses penyimpanan dan Windows Credential Manager.</p><button className="btn" onClick={() => window.location.reload()}>Coba lagi</button></div>;
   if (!state.ready) return <div className="loading" role="status">Memuat workspace…</div>;
+  const viewNames = { servers: "Server", dashboard: "Dashboard", terminal: "Terminal", monitoring: "Monitoring", operations: "Kelola VPS", files: "File" };
+  const activeServer = state.servers.find(s => s.id === state.activeServerId) ?? state.servers[0];
 
   return (
     <div className="app">
@@ -23,15 +29,21 @@ function Shell() {
           <button className={state.view === "terminal" ? "active" : ""} onClick={() => dispatch({ type: "set-view", view: "terminal" })}>
             <span aria-hidden="true">›_</span> Terminal <span className="nav-count">{state.tabs.length || ""}</span>
           </button>
+          <button className={state.view === "monitoring" ? "active" : ""} onClick={() => dispatch({ type: "set-view", view: "monitoring" })}><span aria-hidden="true">◷</span> Monitoring</button>
+          <button className={state.view === "operations" ? "active" : ""} onClick={() => dispatch({ type: "set-view", view: "operations" })}><span aria-hidden="true">⚙</span> Kelola VPS</button>
+          <button className={state.view === "files" ? "active" : ""} onClick={() => dispatch({ type: "set-view", view: "files" })}><span aria-hidden="true">▱</span> File</button>
         </nav>
         <div className="side-foot"><strong>Workspace lokal</strong><p>Profil server tersimpan di perangkat ini.</p><span>VPS Manager <span className="version">v0.1.0</span></span></div>
       </aside>
       <main className="main">
-        <div className="topbar"><span>Workspace <span className="breadcrumb">/</span> {state.view === "servers" ? "Server" : state.view === "dashboard" ? "Dashboard" : "Terminal"}</span><span className="local-badge">Penyimpanan lokal</span></div>
+        <div className="topbar"><span>Workspace <span className="breadcrumb">/</span> {viewNames[state.view]}</span><span className="local-badge">Penyimpanan lokal</span></div>
         <div className={"page-content" + (state.view === "terminal" ? " terminal-content" : "")}>
         {state.view === "servers" && <ServerList />}
         {state.view === "dashboard" && <Dashboard />}
         {state.view === "terminal" && <TerminalView />}
+        <div hidden={state.view !== "monitoring"}><Monitoring /></div>
+        {state.view === "operations" && <Operations />}
+        {state.view === "files" && <><div className="operation-toolbar"><label>Server<select aria-label="Server file manager" value={activeServer?.id ?? ""} onChange={e => dispatch({ type: "set-active-server", id: e.target.value })}>{state.servers.map(server => <option key={server.id} value={server.id}>{server.name}</option>)}</select></label></div>{activeServer ? <FileManager key={`${activeServer.id}:${activeServer.host}:${activeServer.port}`} server={activeServer} /> : <div className="empty"><h2>Belum ada server</h2><p>Tambahkan profil server terlebih dahulu.</p></div>}</>}
         </div>
       </main>
     </div>

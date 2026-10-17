@@ -8,6 +8,10 @@ fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || fail 'Jalankan installer dengan sudo.'
 command -v systemctl >/dev/null || fail 'systemd tidak ditemukan.'
 BIND="${VPS_AGENT_BIND:-127.0.0.1:18710}"
+if [[ -z "${VPS_AGENT_BIND:-}" && ! -f /etc/vps-agent/environment ]] && command -v tailscale >/dev/null; then
+  TAILSCALE_IP=$(tailscale ip -4 2>/dev/null | head -n 1 || true)
+  if [[ "$TAILSCALE_IP" =~ ^100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then BIND="$TAILSCALE_IP:18710"; fi
+fi
 [[ "$BIND" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]+$ ]] || fail 'VPS_AGENT_BIND harus berupa IPv4:port.'
 IFS='.' read -r -a OCTETS <<< "${BIND%:*}"
 [[ ${#OCTETS[@]} -eq 4 ]] || fail 'IPv4 tidak valid.'
@@ -44,12 +48,28 @@ else
   BIN_SRC="${1:-./vps-agent}"
 fi
 [[ -f "$BIN_SRC" ]] || fail "Binary tidak ditemukan: $BIN_SRC"
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)
+if [[ -f "$SCRIPT_DIR/update.sh" ]]; then
+  UPDATER="$SCRIPT_DIR/update.sh"
+else
+  command -v curl >/dev/null || fail 'curl diperlukan untuk updater.'
+  UPDATER="$WORK/update.sh"
+  UPDATE_URL=https://github.com/wignn/catly/releases/latest/download
+  curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' "$UPDATE_URL/update.sh" -o "$UPDATER"
+  curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' "$UPDATE_URL/update.sh.sha256" -o "$WORK/update.sha256"
+  EXPECTED=$(awk 'NR==1 {print $1}' "$WORK/update.sha256")
+  [[ "$EXPECTED" =~ ^[a-fA-F0-9]{64}$ ]] || fail 'Checksum updater tidak valid.'
+  ACTUAL=$(sha256sum "$UPDATER")
+  [[ "${ACTUAL%% *}" == "${EXPECTED,,}" ]] || fail 'Checksum updater tidak cocok.'
+fi
 install -d -m 755 /opt/vps-agent
 install -d -m 700 /etc/vps-agent
 if [[ ! -s /etc/vps-agent/token ]]; then
   od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > /etc/vps-agent/token
 fi
 chmod 600 /etc/vps-agent/token
+install -m 700 "$UPDATER" /opt/vps-agent/update.sh.new
+mv -f /opt/vps-agent/update.sh.new /opt/vps-agent/update.sh
 install -m 755 "$BIN_SRC" /opt/vps-agent/vps-agent.new
 mv -f /opt/vps-agent/vps-agent.new /opt/vps-agent/vps-agent
 install -d -m 755 /usr/local/bin
@@ -79,6 +99,22 @@ ReadWritePaths=/etc/vps-agent /opt/vps-agent
 [Install]
 WantedBy=multi-user.target
 UNIT
+cat > /etc/systemd/system/vps-agent-update@.service <<'UNIT'
+[Unit]
+Description=VPS Agent maintenance (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/bin/bash /opt/vps-agent/update.sh %i
+TimeoutStartSec=600
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/etc/vps-agent /opt/vps-agent
+UNIT
 systemctl daemon-reload
 systemctl enable vps-agent
 systemctl restart vps-agent
@@ -87,4 +123,4 @@ systemctl is-active --quiet vps-agent || fail 'Agent gagal berjalan. Periksa: jo
 printf '\nvps-agent aktif. Konfigurasi: /etc/vps-agent/environment\nBinary: /usr/local/bin/vps-agent\nToken untuk client:\n'
 cat /etc/vps-agent/token
 printf '\n\nToken lama dipertahankan saat upgrade.\n'
-printf 'Untuk Tailscale, set VPS_AGENT_BIND ke IP Tailscale:18710 di /etc/vps-agent/environment lalu restart service.\n'
+printf 'Instalasi baru memakai IP Tailscale yang sudah aktif, atau loopback. Bind upgrade tetap dipertahankan.\n'
