@@ -47,8 +47,8 @@ function Check-Scenario($scenario, $url, $expectedFailure, $expectedLaunches) {
 try {
     Check-Scenario 'default-url' '' '' 1
     Check-Scenario 'invalid-url' 'http://insecure.example/release' 'HTTPS' 0
-    Check-Scenario 'mismatch' 'https://release.example/v1' 'Checksum tidak cocok' 0
-    Check-Scenario 'malformed' 'https://release.example/v1' 'Format checksum' 0
+    Check-Scenario 'mismatch' 'https://release.example/v1' 'Checksum mismatch' 0
+    Check-Scenario 'malformed' 'https://release.example/v1' 'Invalid checksum format' 0
     Check-Scenario 'network' 'https://release.example/v1' 'Simulated network error' 0
     Check-Scenario 'cancel' 'https://release.example/v1' '1602' 1
     Check-Scenario 'valid' 'https://release.example/v1' '' 1

@@ -1,4 +1,4 @@
-//! Operasi sekali-jalan: info, exec, proses, service systemd, jaringan, file, log.
+//! One-shot operations: info, exec, processes, systemd services, networking, files, logs.
 
 use crate::{TokenQuery, VERSION};
 use axum::extract::ws::{Message, WebSocket};
@@ -80,7 +80,7 @@ pub async fn exec_cmd(Json(req): Json<ExecReq>) -> Json<ExecRes> {
         }),
         Ok(Err(e)) => Json(ExecRes {
             stdout: String::new(),
-            stderr: format!("gagal menjalankan perintah: {e}"),
+            stderr: format!("failed to execute command: {e}"),
             exit_code: -1,
             timed_out: false,
         }),
@@ -242,11 +242,11 @@ pub struct ServiceActionReq {
 
 pub async fn service_action(Json(req): Json<ServiceActionReq>) -> Json<serde_json::Value> {
     if !crate::security_policy::service_unit(&req.unit) {
-        return Json(serde_json::json!({ "ok": false, "error": "nama unit tidak valid" }));
+        return Json(serde_json::json!({ "ok": false, "error": "invalid unit name" }));
     }
     let action = match req.action.as_str() {
         "start" | "stop" | "restart" | "reload" => req.action.as_str(),
-        _ => return Json(serde_json::json!({ "ok": false, "error": "aksi tidak dikenal" })),
+        _ => return Json(serde_json::json!({ "ok": false, "error": "unknown action" })),
     };
     let res = tokio::time::timeout(
         std::time::Duration::from_secs(60),
@@ -260,7 +260,7 @@ pub async fn service_action(Json(req): Json<ServiceActionReq>) -> Json<serde_jso
         Ok(Ok(o)) if o.status.success() => Json(serde_json::json!({ "ok": true })),
         Ok(Ok(o)) => Json(serde_json::json!({ "ok": false,
             "error": String::from_utf8_lossy(&o.stderr).trim().to_string() })),
-        _ => Json(serde_json::json!({ "ok": false, "error": "gagal/timeout" })),
+        _ => Json(serde_json::json!({ "ok": false, "error": "failed/timed out" })),
     }
 }
 
@@ -316,7 +316,7 @@ fn parse_listening(out: &str, proto: &str) -> Vec<SockInfo> {
 }
 
 /// `ss -tnp state established` → kolom: Recv-Q Send-Q Local Peer Process
-/// (kolom State hilang karena sudah difilter)
+/// (the State column is absent because it has already been filtered)
 fn parse_established(out: &str) -> Vec<SockInfo> {
     let mut v = Vec::new();
     for line in out.lines().skip(1) {
@@ -419,7 +419,7 @@ fn safe_write(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
             std::path::Component::Normal(name) => {
                 directory = OpenOptions::new()
                     .read(true)
-                    .custom_flags(0x20000 | 0x10000)
+                    .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
                     .open(
                         std::path::PathBuf::from(format!(
                             "/proc/self/fd/{}",
@@ -448,7 +448,7 @@ fn safe_write(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
     let dest = anchored.join(name);
     let original = match OpenOptions::new()
         .read(true)
-        .custom_flags(0x20000 | 0x800)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(&dest)
     {
         Ok(file) => {
@@ -509,17 +509,17 @@ fn clean_path(raw: &str) -> Result<std::path::PathBuf, Response> {
     if !p.is_absolute() {
         return Err((
             StatusCode::from_u16(403).unwrap(),
-            Json(serde_json::json!({"error":"path harus absolut"})),
+            Json(serde_json::json!({"error":"path must be absolute"})),
         )
             .into_response());
     }
-    // tolak komponen parent-dir agar tidak lolos
+    // reject parent-directory components to prevent traversal
     if p.components()
         .any(|c| matches!(c, std::path::Component::ParentDir))
     {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error":"path tidak valid"})),
+            Json(serde_json::json!({"error":"invalid path"})),
         )
             .into_response());
     }
@@ -600,7 +600,7 @@ pub async fn read_file(Query(q): Query<PathQuery>) -> Result<Json<serde_json::Va
     if data.len() > 2 * 1024 * 1024 {
         return Err((
             StatusCode::from_u16(413).unwrap(),
-            Json(serde_json::json!({"error":"file terlalu besar (>2MB), pakai download"})),
+            Json(serde_json::json!({"error":"file too large (>2MB); use download"})),
         )
             .into_response());
     }
@@ -665,7 +665,7 @@ pub async fn upload_file(
     if !dir.is_dir() {
         return Err((
             StatusCode::from_u16(400).unwrap(),
-            Json(serde_json::json!({"error":"path harus direktori"})),
+            Json(serde_json::json!({"error":"path must be a directory"})),
         )
             .into_response());
     }
@@ -785,6 +785,10 @@ mod file_tests {
         let link = dir.join("link");
         std::os::unix::fs::symlink(&path, &link).unwrap();
         assert!(safe_write(&link, b"attack").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        let directory_link = dir.join("directory-link");
+        std::os::unix::fs::symlink(&dir, &directory_link).unwrap();
+        assert!(safe_write(&directory_link.join("file"), b"parent symlink attack").is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();

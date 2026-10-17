@@ -42,21 +42,21 @@ export default function TerminalPane({ server, paneKey }: Props) {
     let alive = true;
 
     ws.onopen = () => {
-      term.writeln("\x1b[90m[terhubung ke " + server.name + " — " + server.host + "]\x1b[0m");
+      term.writeln("\x1b[90m[connected to " + server.name + " — " + server.host + "]\x1b[0m");
     };
     ws.onmessage = (ev) => {
       if (!alive) return;
       try {
         const msg = JSON.parse(ev.data as string);
         if (msg.t === "output" && typeof msg.data === "string") term.write(msg.data);
-        else if (msg.t === "exit") term.writeln(`\r\n\x1b[90m[sesi berakhir, kode ${msg.code}]\x1b[0m`);
+        else if (msg.t === "exit") term.writeln(`\r\n\x1b[90m[session ended, code ${msg.code}]\x1b[0m`);
       } catch { /* abaikan */ }
     };
     ws.onclose = () => {
-      if (alive) term.writeln("\r\n\x1b[90m[koneksi terputus]\x1b[0m");
+      if (alive) term.writeln("\r\n\x1b[90m[disconnected]\x1b[0m");
     };
     ws.onerror = () => {
-      term.writeln("\r\n\x1b[31m[gagal terhubung ke agent — cek host/port/token]\x1b[0m");
+      term.writeln("\r\n\x1b[31m[gagal connected to agent — check host/port/token]\x1b[0m");
     };
 
     const dispData = term.onData((data) => {

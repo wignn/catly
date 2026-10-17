@@ -7,7 +7,7 @@ export default function TerminalView() {
   const activeTab = state.tabs.find((t) => t.id === state.activeTabId) ?? null;
 
   if (!state.servers.length) {
-    return <div className="empty">Tambahkan VPS dulu di menu <b>Server</b> sebelum membuka terminal.</div>;
+    return <div className="empty">Add a VPS in the <b>Server</b> menu before opening a terminal.</div>;
   }
 
   const colsFor = (n: number) =>
@@ -15,7 +15,7 @@ export default function TerminalView() {
 
   return (
     <div className="term-view">
-      <header className="page-heading"><div><h1>Terminal</h1><p>Buka sesi shell atau bagi tampilan untuk bekerja di beberapa VPS.</p></div></header>
+      <header className="page-heading"><div><h1>Terminal</h1><p>Open shell sessions or split the view to work across multiple VPS hosts.</p></div></header>
       <div className="tabbar">
         {state.tabs.map((t) => (
           <div
@@ -26,21 +26,21 @@ export default function TerminalView() {
             <button
               className="tab-x"
               onClick={(e) => { e.stopPropagation(); dispatch({ type: "close-tab", id: t.id }); }}
-              title="Tutup tab"
+              title="Close tab"
             >×</button>
           </div>
         ))}
         <button
           className="btn small"
           onClick={() => dispatch({ type: "open-tab", serverId: state.activeServerId ?? state.servers[0].id })}
-          title="Tab baru"
+          title="New tab"
         >+ Tab</button>
         {activeTab && (
           <button
             className="btn small"
             onClick={() => dispatch({ type: "split-pane", tabId: activeTab.id, serverId: state.activeServerId ?? state.servers[0].id })}
-            title="Split: tambah panel berdampingan"
-          >Split panel</button>
+            title="Split: add a panel side by side"
+          >Split pane</button>
         )}
       </div>
 
@@ -52,7 +52,7 @@ export default function TerminalView() {
               <div key={p.id} className="pane">
                 <div className="pane-head">
                   <select
-                    aria-label="Server untuk panel terminal"
+                    aria-label="Server for terminal pane"
                     value={srv.id}
                     onChange={(e) => dispatch({ type: "set-pane-server", tabId: activeTab.id, paneId: p.id, serverId: e.target.value })}
                   >
@@ -63,7 +63,7 @@ export default function TerminalView() {
                   {activeTab.panes.length > 1 && (
                     <button
                       className="btn tiny"
-                      aria-label="Tutup panel"
+                      aria-label="Close pane"
                       onClick={() => dispatch({ type: "close-pane", tabId: activeTab.id, paneId: p.id })}
                     >×</button>
                   )}
@@ -75,9 +75,9 @@ export default function TerminalView() {
         </div>
       ) : (
         <div className="empty">
-          Belum ada tab terminal.{" "}
+          No terminal tabs yet.{" "}
           <button className="btn" onClick={() => dispatch({ type: "open-tab", serverId: state.activeServerId ?? state.servers[0].id })}>
-            Buka terminal
+            Open terminal
           </button>
         </div>
       )}

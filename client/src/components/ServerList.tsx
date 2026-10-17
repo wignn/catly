@@ -39,7 +39,7 @@ export default function ServerList() {
       if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== "/") throw new Error();
       if (!Number.isInteger(Number(port)) || Number(port) < 1 || Number(port) > 65535) throw new Error();
     } catch {
-      setError("Masukkan IP, domain, atau URL HTTP(S) tanpa path, serta port 1–65535.");
+      setError("Enter an IP, domain, or HTTP(S) URL without a path, and a port from 1 to 65535.");
       return;
     }
     setSaving(true);
@@ -47,7 +47,7 @@ export default function ServerList() {
     try {
       await persistServer({ id: editing ?? uid(), name: name.trim(), host: address, port: Number(port), token: token.trim() }, dispatch);
       resetDraft();
-    } catch (e) { setError(`Server belum tersimpan. ${e instanceof Error ? e.message : "Periksa akses penyimpanan lalu coba lagi."}`); }
+    } catch (e) { setError(`Server has not been saved. ${e instanceof Error ? e.message : "Check storage access and try again."}`); }
     finally { setSaving(false); }
   };
 
@@ -67,7 +67,7 @@ export default function ServerList() {
     } catch (e) {
       if (!current()) return;
       recordConnection(id, {online:false,error:(e as Error).message});
-      setTestMsg(msg => ({ ...msg, [id]: { ok: false, ts:Date.now(), text: `Gagal: ${(e as Error).message}` } }));
+      setTestMsg(msg => ({ ...msg, [id]: { ok: false, ts:Date.now(), text: `Failed: ${(e as Error).message}` } }));
     } finally { if(tests.current.get(id)===generation)setTesting(ids => ids.filter(x => x !== id)); }
   };
 
@@ -75,35 +75,35 @@ export default function ServerList() {
 
   return (
     <div className="servers">
-      <header className="page-heading"><div><h1>Server</h1><p>Kelola koneksi VPS dan akses terminal dari satu tempat.</p></div><a className="btn primary" href="#add-server" onClick={() => {if(!saving && editing){setEditing(null);setName("");setHost("");setPort("18710");setToken("");setError("");}}}>+ Tambah server</a></header>
-      {!(window as unknown as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__ && <p className="form-note">Mode browser: token disimpan hanya selama sesi halaman; gunakan aplikasi desktop untuk penyimpanan aman.</p>}
+      <header className="page-heading"><div><h1>Server</h1><p>Manage VPS connections and terminal access in one place.</p></div><a className="btn primary" href="#add-server" onClick={() => {if(!saving && editing){setEditing(null);setName("");setHost("");setPort("18710");setToken("");setError("");}}}>+ Add server</a></header>
+      {!(window as unknown as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__ && <p className="form-note">Browser mode: tokens are kept only for this page session; use the desktop app for secure storage.</p>}
       <div className="server-layout">
         <section className="inventory panel" aria-labelledby="inventory-title">
-          <div className="section-heading"><h2 id="inventory-title">Daftar server <span className="count">{state.servers.length}</span></h2><span className="muted">Koneksi agent</span></div>
-          <div className="search-wrap"><input className="search" type="search" aria-label="Cari server" placeholder="Cari nama atau alamat server…" value={query} onChange={e => setQuery(e.target.value)} /></div>
-          <div className="list-labels"><span>Nama / alamat</span><span>Akses server</span></div>
+          <div className="section-heading"><h2 id="inventory-title">Server list <span className="count">{state.servers.length}</span></h2><span className="muted">Agent connections</span></div>
+          <div className="search-wrap"><input className="search" type="search" aria-label="Search servers" placeholder="Search server name or address…" value={query} onChange={e => setQuery(e.target.value)} /></div>
+          <div className="list-labels"><span>Name / address</span><span>Server access</span></div>
           <div className="server-rows">
             {servers.map(s => (
               <div key={s.id} className="server-row">
-                <div className="server-identity"><span className="server-icon" aria-hidden="true">▤</span><div><div className="srv-name">{s.name}</div><div className="server-address">{new AgentClient(s).base}</div><div className="test-msg" aria-live="polite">{connectionStatus(s.id).online ? "Terhubung" : connectionStatus(s.id).error ?? "Belum diuji"}</div><div className="test-msg">{testing.includes(s.id) ? "Menguji koneksi..." : testMsg[s.id] && `Uji manual ${new Date(testMsg[s.id].ts).toLocaleTimeString("id-ID")}: ${testMsg[s.id].text}`}</div><div className="muted">{connectionStatus(s.id).lastSeen ? `Terakhir: ${new Date(connectionStatus(s.id).lastSeen!).toLocaleString("id-ID")} · v${connectionStatus(s.id).version} · ${connectionStatus(s.id).latency} ms` : "Belum ada koneksi berhasil"}</div></div></div>
-                <div className="row-actions"><button className="btn small" disabled={saving} onClick={() => {invalidateTest(s.id);setEditing(s.id);setName(s.name);setHost(s.host);setPort(String(s.port));setToken(s.token);setError("");document.getElementById("add-server")?.scrollIntoView();}}>Edit</button><button className="btn small" disabled={saving || testing.includes(s.id)} onClick={() => test(s.id)}>Uji koneksi</button><button className="btn small" onClick={() => dispatch({ type: "open-tab", serverId: s.id })}>Terminal</button><button className="btn small danger" disabled={saving} aria-label={`Hapus ${s.name}`} onClick={async () => { if (confirm(`Hapus profil ${s.name}? VPS dan datanya tidak dihapus.`)) { try { invalidateTest(s.id); await removeServer(s.id, dispatch); if(editing===s.id)resetDraft(); } catch { setError("Profil gagal dihapus. Coba lagi."); } } }}>Hapus</button></div>
+                <div className="server-identity"><span className="server-icon" aria-hidden="true">▤</span><div><div className="srv-name">{s.name}</div><div className="server-address">{new AgentClient(s).base}</div><div className="test-msg" aria-live="polite">{connectionStatus(s.id).online ? "Connected" : connectionStatus(s.id).error ?? "Not tested"}</div><div className="test-msg">{testing.includes(s.id) ? "Testing connection..." : testMsg[s.id] && `Manual test ${new Date(testMsg[s.id].ts).toLocaleTimeString("en-US")}: ${testMsg[s.id].text}`}</div><div className="muted">{connectionStatus(s.id).lastSeen ? `Last seen: ${new Date(connectionStatus(s.id).lastSeen!).toLocaleString("en-US")} · v${connectionStatus(s.id).version} · ${connectionStatus(s.id).latency} ms` : "No successful connections yet"}</div></div></div>
+                <div className="row-actions"><button className="btn small" disabled={saving} onClick={() => {invalidateTest(s.id);setEditing(s.id);setName(s.name);setHost(s.host);setPort(String(s.port));setToken(s.token);setError("");document.getElementById("add-server")?.scrollIntoView();}}>Edit</button><button className="btn small" disabled={saving || testing.includes(s.id)} onClick={() => test(s.id)}>Test connection</button><button className="btn small" onClick={() => dispatch({ type: "open-tab", serverId: s.id })}>Terminal</button><button className="btn small danger" disabled={saving} aria-label={`Delete ${s.name}`} onClick={async () => { if (confirm(`Delete profile ${s.name}? The VPS and its data will be kept.`)) { try { invalidateTest(s.id); await removeServer(s.id, dispatch); if(editing===s.id)resetDraft(); } catch { setError("Could not delete the profile. Try again."); } } }}>Delete</button></div>
               </div>
             ))}
-            {!state.servers.length && <div className="empty"><span className="empty-symbol" aria-hidden="true">▤</span><h3>Hubungkan VPS pertama</h3><p>Pasang agent di VPS, lalu masukkan alamat dan token pada form di samping.</p><a className="btn" href="#install-agent">Lihat cara instalasi</a></div>}
-            {!!state.servers.length && !servers.length && <div className="empty"><h3>Server tidak ditemukan</h3><p>Coba nama atau alamat lain.</p></div>}
+            {!state.servers.length && <div className="empty"><span className="empty-symbol" aria-hidden="true">▤</span><h3>Connect your first VPS</h3><p>Install the agent on your VPS, then enter its address and token in the form.</p><a className="btn" href="#install-agent">View installation guide</a></div>}
+            {!!state.servers.length && !servers.length && <div className="empty"><h3>No servers found</h3><p>Try another name or address.</p></div>}
           </div>
-          <div className="panel-foot">{state.servers.length} server tersimpan <span>Token tidak ditampilkan dalam daftar</span></div>
+          <div className="panel-foot">{state.servers.length} saved servers <span>Tokens are hidden from this list</span></div>
         </section>
-        <section className="add-server panel" id="add-server" aria-labelledby="add-title"><div className="section-heading"><h2 id="add-title">{editing ? "Edit server" : "Tambah server"}</h2></div><p className="form-intro">Gunakan alamat VPS yang menjalankan agent.</p>
+        <section className="add-server panel" id="add-server" aria-labelledby="add-title"><div className="section-heading"><h2 id="add-title">{editing ? "Edit server" : "Add server"}</h2></div><p className="form-intro">Use the address of the VPS running the agent.</p>
           <form className="form" onSubmit={add}>
-            <label>Nama server<input disabled={saving} required maxLength={80} value={name} onChange={e => setName(e.target.value)} placeholder="production-01" /></label>
-            <label>Alamat host<input disabled={saving} required value={host} onChange={e => setHost(e.target.value)} placeholder="100.64.0.1" /><small>IP Tailscale, domain, atau URL HTTPS.</small></label>
+            <label>Server name<input disabled={saving} required maxLength={80} value={name} onChange={e => setName(e.target.value)} placeholder="production-01" /></label>
+            <label>Host address<input disabled={saving} required value={host} onChange={e => setHost(e.target.value)} placeholder="100.64.0.1" /><small>Tailscale IP, domain, or HTTPS URL.</small></label>
             <label>Port<input disabled={saving} required type="number" min="1" max="65535" value={port} onChange={e => setPort(e.target.value)} /></label>
-            <label>Token agent<input disabled={saving} required value={token} onChange={e => setToken(e.target.value)} placeholder="Tempel token dari VPS" type="password" autoComplete="off" /><small>Dari file /etc/vps-agent/token di VPS.</small></label>
+            <label>Agent token<input disabled={saving} required value={token} onChange={e => setToken(e.target.value)} placeholder="Paste the token from your VPS" type="password" autoComplete="off" /><small>From /etc/vps-agent/token on your VPS.</small></label>
             {error && <p className="form-error" role="alert">{error}</p>}
-            <button className="btn primary" disabled={saving || !name.trim() || !host.trim() || !token.trim()}>{saving ? "Menyimpan…" : "Simpan server"}</button>
-            {editing && <button type="button" className="btn" disabled={saving} onClick={() => {setEditing(null);setName("");setHost("");setPort("18710");setToken("");}}>Batal edit</button>}
-          </form><p className="form-note">Gunakan jaringan Tailscale atau reverse proxy HTTPS untuk mengakses agent.</p>
+            <button className="btn primary" disabled={saving || !name.trim() || !host.trim() || !token.trim()}>{saving ? "Saving…" : "Save server"}</button>
+            {editing && <button type="button" className="btn" disabled={saving} onClick={() => {setEditing(null);setName("");setHost("");setPort("18710");setToken("");}}>Cancel editing</button>}
+          </form><p className="form-note">Use Tailscale or an HTTPS reverse proxy to access the agent.</p>
         </section>
       </div>
       <InstallGuide />

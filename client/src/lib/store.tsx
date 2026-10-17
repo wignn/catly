@@ -99,7 +99,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const [servers, tabs] = await Promise.all([loadServers(), loadTabs()]);
         if (alive) dispatch({ type: "init", servers, tabs });
       } catch (e) {
-        if (alive) dispatch({ type: "init-error", message: e instanceof Error ? e.message : "Penyimpanan profil tidak dapat dibuka." });
+        if (alive) dispatch({ type: "init-error", message: e instanceof Error ? e.message : "Unable to open profile storage." });
       }
     })();
     return () => { alive = false; };
@@ -118,7 +118,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
 export function useStore() {
   const ctx = useContext(Ctx);
-  if (!ctx) throw new Error("useStore di luar StoreProvider");
+  if (!ctx) throw new Error("useStore called outside StoreProvider");
   return ctx;
 }
 

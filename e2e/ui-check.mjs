@@ -53,14 +53,14 @@ try {
   await fill('.form label:nth-child(4) input','ui-test-token');
   await evaluate("window.restoreStorage = Storage.prototype.setItem; Storage.prototype.setItem = () => { throw new Error('quota'); }");
   await click('.form .primary');
-  await waitFor("document.querySelector('[role=alert]')?.textContent.includes('belum tersimpan')");
+  await waitFor("document.querySelector('[role=alert]')?.textContent.includes('has not been saved')");
   assert.equal(await evaluate("document.querySelectorAll('.server-row').length"),0,'Failed save must not create a server');
   await evaluate("Storage.prototype.setItem = window.restoreStorage");
   await click('.form .primary');
   await waitFor(`document.querySelector('.srv-name')?.textContent === 'production-01'`);
   await screenshot('servers-desktop');
   await fill('.search','no-match');
-  await waitFor(`document.body.textContent.includes('Server tidak ditemukan')`);
+  await waitFor(`document.body.textContent.includes('No servers found')`);
   await fill('.search','');
   await fill('.release-label input','https://releases.example.com/v0.1.0');
   await waitFor(`!document.querySelector('.copy-btn').disabled`);
@@ -75,7 +75,7 @@ try {
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await click('.side nav button:nth-child(2)');
   await waitFor(`!!document.querySelector('.connection-state')`);
-  assert.equal(await evaluate(`document.querySelector('.connection-state').textContent.includes('Terhubung')`),false,'No fake online status');
+  assert.equal(await evaluate(`document.querySelector('.connection-state').textContent.includes('Connected')`),false,'No fake online status');
   await screenshot('dashboard-disconnected');
   // Exercise metric rendering and stale status without requiring a live VPS.
   await click('.side nav button:nth-child(1)');
@@ -94,12 +94,12 @@ try {
       net:[{rx_rate:1024,tx_rate:512}], load:[0.42,0.3,0.2] };
     metricSocket.onmessage({data:JSON.stringify(sample)});
   })()`);
-  await waitFor('document.querySelector(".connection-state").textContent.includes("Terhubung")');
+  await waitFor('document.querySelector(".connection-state").textContent.includes("Connected")');
   assert.match(await evaluate('document.querySelector(".metrics").textContent'), /CPU 23.5%/);
   assert.equal(await evaluate('document.querySelectorAll("[role=progressbar]").length'),3);
   await screenshot('dashboard-metrics');
   await evaluate('metricSocket.onclose()');
-  await waitFor('document.querySelector(".connection-state").textContent.includes("Terputus")');
+  await waitFor('document.querySelector(".connection-state").textContent.includes("Disconnected")');
   assert(await evaluate('!!document.querySelector(".card-err")'),'Stale data must display connection error');
   await evaluate('window.WebSocket = window.realWebSocket');
   await click('.side nav button:nth-child(3)');

@@ -13,7 +13,7 @@ function Spark({ data, color }: { data: number[]; color: string }) {
   const max = Math.max(...data, 1);
   const pts = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - (v / max) * (h - 2) - 1}`).join(" ");
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="spark" role="img" aria-label="Riwayat penggunaan CPU">
+    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="spark" role="img" aria-label="CPU usage history">
       <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" />
     </svg>
   );
@@ -21,7 +21,7 @@ function Spark({ data, color }: { data: number[]; color: string }) {
 
 function Bar({ pct, color }: { pct: number; color: string }) {
   return (
-    <div className="bar" role="progressbar" aria-label="Penggunaan resource" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.max(0, Math.min(100, pct)))}><div className="bar-fill" style={{ width: `${Math.max(0, Math.min(100, pct))}%`, background: color }} /></div>
+    <div className="bar" role="progressbar" aria-label="Resource usage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.max(0, Math.min(100, pct)))}><div className="bar-fill" style={{ width: `${Math.max(0, Math.min(100, pct))}%`, background: color }} /></div>
   );
 }
 
@@ -69,9 +69,9 @@ function ServerCard({ server }: { server: Server }) {
           }
         } catch { /* abaikan */ }
       };
-      ws.onclose = () => { if (alive) { setErr(previous => previous ?? `Terputus dari ${client.base}/ws/metrics — mencoba lagi…`); schedule(); } };
+      ws.onclose = () => { if (alive) { setErr(previous => previous ?? `Disconnected from ${client.base}/ws/metrics — retrying…`); schedule(); } };
       ws.onerror = () => { if (alive) {
-        setErr(`WebSocket gagal: ${client.base}/ws/metrics. Periksa token, agent, jaringan, dan HTTPS; browser tidak melaporkan penyebab tepat.`);
+        setErr(`WebSocket failed: ${client.base}/ws/metrics. Check the token, agent, network, and HTTPS; the browser does not report the exact cause.`);
         void client.info().catch(e=>{if(alive)setErr((e as Error).message);});
       } };
     };
@@ -93,7 +93,7 @@ function ServerCard({ server }: { server: Server }) {
           <div className="card-title">{server.name}</div>
           <div className="card-sub">{info ? `${info.hostname} · ${info.os} · v${info.version} · ${info.latency} ms` : new AgentClient(server).base}</div>
         </div>
-        <span className="connection-state"><span className={"dot " + (err ? "bad" : snap ? "ok" : "")} />{err ? "Terputus" : snap ? "Terhubung" : "Menghubungkan"}</span>
+        <span className="connection-state"><span className={"dot " + (err ? "bad" : snap ? "ok" : "")} />{err ? "Disconnected" : snap ? "Connected" : "Connecting"}</span>
       </div>
       {err && <div className="card-err">{err}</div>}
       {snap ? (
@@ -126,9 +126,9 @@ function ServerCard({ server }: { server: Server }) {
           </div>
         </div>
       ) : (
-        <div className="muted">Menghubungkan…</div>
+        <div className="muted">Connecting…</div>
       )}
-      <div className="card-footer"><span className="muted">{snap ? `Sampel: ${new Date(snap.ts * 1000).toLocaleTimeString("id-ID")}` : "Menunggu metrik agent"}</span><button className="btn small" onClick={() => dispatch({ type: "open-tab", serverId: server.id })}>Terminal</button></div>
+      <div className="card-footer"><span className="muted">{snap ? `Sample: ${new Date(snap.ts * 1000).toLocaleTimeString("en-US")}` : "Waiting for agent metrics"}</span><button className="btn small" onClick={() => dispatch({ type: "open-tab", serverId: server.id })}>Terminal</button></div>
     </div>
   );
 }
@@ -136,7 +136,7 @@ function ServerCard({ server }: { server: Server }) {
 export default function Dashboard() {
   const { state, dispatch } = useStore();
   return <section>
-    <header className="page-heading"><div><h1>Dashboard</h1><p>Pantau penggunaan resource dan koneksi setiap VPS secara langsung.</p></div><span className="muted">{state.servers.length} server terdaftar</span></header>
-    {!state.servers.length ? <div className="empty panel"><h3>Belum ada server untuk dipantau</h3><p>Tambahkan VPS untuk melihat CPU, memori, disk, dan lalu lintas jaringan.</p><button className="btn primary" onClick={() => dispatch({ type: "set-view", view: "servers" })}>Tambah server</button></div> : <div className="dash">{state.servers.map(s => <ServerCard key={s.id} server={s} />)}</div>}
+    <header className="page-heading"><div><h1>Dashboard</h1><p>Monitor resource usage and connections for every VPS in real time.</p></div><span className="muted">{state.servers.length} registered servers</span></header>
+    {!state.servers.length ? <div className="empty panel"><h3>No servers to monitor yet</h3><p>Add a VPS to view CPU, memory, disk, and network traffic.</p><button className="btn primary" onClick={() => dispatch({ type: "set-view", view: "servers" })}>Add server</button></div> : <div className="dash">{state.servers.map(s => <ServerCard key={s.id} server={s} />)}</div>}
   </section>;
 }

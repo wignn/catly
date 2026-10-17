@@ -7,7 +7,6 @@ use futures_util::StreamExt;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use std::io::Read;
-use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 #[derive(Deserialize)]
@@ -85,14 +84,25 @@ pub async fn handle(
             return;
         }
     };
-    let writer = match pair.master.take_writer() {
-        Ok(w) => Arc::new(Mutex::new(w)),
+    let mut writer = match pair.master.take_writer() {
+        Ok(w) => w,
         Err(e) => {
             eprintln!("[pty] gagal ambil writer: {e}");
             return;
         }
     };
     let master = pair.master;
+
+    // One ordered writer per session avoids scheduling a blocking task per keystroke.
+    let (tx_input, mut rx_input) = mpsc::channel::<String>(128);
+    let writer_task = tokio::task::spawn_blocking(move || {
+        use std::io::Write;
+        while let Some(data) = rx_input.blocking_recv() {
+            if writer.write_all(data.as_bytes()).and_then(|_| writer.flush()).is_err() {
+                break;
+            }
+        }
+    });
 
     // Task pembaca: PTY -> channel
     let (tx_out, mut rx_out) = mpsc::channel::<Vec<u8>>(128);
@@ -124,13 +134,7 @@ pub async fn handle(
                             match cm.t.as_str() {
                                 "input" => {
                                     if let Some(data) = cm.data {
-                                        let w = writer.clone();
-                                        // tulis di blocking task agar tidak menahan runtime
-                                        let bytes = data.into_bytes();
-                                        tokio::task::spawn_blocking(move || {
-                                            use std::io::Write;
-                                            let _ = w.lock().unwrap().write_all(&bytes);
-                                        });
+                                        if tx_input.send(data).await.is_err() { break; }
                                     }
                                 }
                                 "resize" => {
@@ -170,5 +174,7 @@ pub async fn handle(
 
     reader_task.abort();
     let _ = child.kill();
+    drop(tx_input);
+    writer_task.abort();
     let _ = socket.send(Message::Close(None)).await;
 }

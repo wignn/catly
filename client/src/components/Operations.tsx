@@ -56,24 +56,24 @@ export default function Operations() {
   });
 
   const act = (service: string, action: "start" | "stop" | "restart") => {
-    if (!confirm(`${action} ${service} di ${server?.name}?`)) return;
+    if (!confirm(`${action} ${service} on ${server?.name}?`)) return;
     void perform(async client => {
       const result = await client.serviceAction(service, action);
-      if (!result.ok) throw new Error(result.error || "Operasi service gagal.");
+      if (!result.ok) throw new Error(result.error || "Service operation failed.");
       setServices((await client.services()).services);
-      setMessage(`${service}: ${action} berhasil.`);
+      setMessage(`${service}: ${action} succeeded.`);
     });
   };
 
   const followLogs = () => {
     socket.current?.close(); socket.current = null;
-    if (following) { setFollowing(false); setLogStatus("Log dijeda."); return; }
+    if (following) { setFollowing(false); setLogStatus("Logs paused."); return; }
     if (!server) return;
     setLogs([]); setError("");
     try {
       const ws = new AgentClient(server).logsSocket(unit);
-      socket.current = ws; setFollowing(true); setLogStatus("Menghubungkan log…");
-      ws.onopen = () => { if (socket.current === ws) setLogStatus("Mengikuti log langsung."); };
+      socket.current = ws; setFollowing(true); setLogStatus("Connecting to logs…");
+      ws.onopen = () => { if (socket.current === ws) setLogStatus("Following live logs."); };
       ws.onmessage = event => {
         if (socket.current !== ws || typeof event.data !== "string") return;
         let text = event.data.slice(0, 65536);
@@ -83,8 +83,8 @@ export default function Operations() {
         } catch { /* Accept plain text from older agents as well. */ }
         setLogs(previous => [...previous, ...text.split("\n")].slice(-1000));
       };
-      ws.onerror = () => { if (socket.current === ws) setLogStatus("Log gagal terhubung. Periksa akses admin, koneksi, dan nama service."); };
-      ws.onclose = () => { if (socket.current === ws) { setFollowing(false); setLogStatus("Koneksi log ditutup. Klik Ikuti log untuk menyambung lagi."); } };
+      ws.onerror = () => { if (socket.current === ws) setLogStatus("Could not connect to logs. Check admin access, connection, and service name."); };
+      ws.onclose = () => { if (socket.current === ws) { setFollowing(false); setLogStatus("Log connection closed. Click Follow logs to reconnect."); } };
     } catch (e) { setFollowing(false); setError(errorText(e)); }
   };
 
@@ -95,25 +95,25 @@ export default function Operations() {
     ]);
     setDiagnostics(diag); setUpdate(status);
     const response = await fetch("https://api.github.com/repos/wignn/catly/releases/latest", { signal: AbortSignal.timeout(10000) });
-    if (!response.ok) throw new Error(`Status agent berhasil dibaca, tetapi pemeriksaan rilis GitHub gagal (HTTP ${response.status}).`);
+    if (!response.ok) throw new Error(`Agent status was read, but the GitHub release check failed (HTTP ${response.status}).`);
     const release: { tag_name?: string } = await response.json();
-    if (!release.tag_name || !/^v\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(release.tag_name)) throw new Error("Versi rilis GitHub tidak valid.");
+    if (!release.tag_name || !/^v\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(release.tag_name)) throw new Error("Invalid GitHub release version.");
     setLatest(release.tag_name);
   });
 
   const maintain = (action: "update" | "rollback") => {
-    if (!confirm(`${action === "update" ? "Update agent ke rilis stabil Catly terbaru" : "Pulihkan binary agent sebelumnya"} di ${server?.name}? Koneksi akan terputus sementara.`)) return;
+    if (!confirm(`${action === "update" ? "Update the agent to the latest stable Catly release" : "Restore the previous agent binary"} on ${server?.name}? The connection will be interrupted briefly.`)) return;
     void perform(async client => {
       const result = await client.request<{ ok: boolean; error?: string }>("/api/update", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }),
       });
-      if (!result.ok) throw new Error(result.error || "Permintaan pemeliharaan gagal.");
-      setMessage("Permintaan diterima. Agent akan restart; klik Periksa versi dan status setelah beberapa saat untuk melihat hasilnya.");
+      if (!result.ok) throw new Error(result.error || "Maintenance request failed.");
+      setMessage("Request accepted. The agent will restart; click Check version and status shortly to see the result.");
     });
   };
 
   const rotate = (kind: "admin" | "readonly") => {
-    if (!confirm(kind === "admin" ? "Ganti token admin? Semua client dengan token lama akan kehilangan akses. Token baru akan disimpan ke profil ini." : "Buat/ganti token pemantauan? Token read-only lama akan berhenti berlaku.")) return;
+    if (!confirm(kind === "admin" ? "Rotate the admin token? All clients using the old token will lose access. The new token will be saved to this profile." : "Create/rotate the monitoring token? The old read-only token will stop working.")) return;
     void perform(async client => {
       const result = await client.request<{ token: string; kind: string }>("/api/security/rotate", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind }),
@@ -124,55 +124,55 @@ export default function Operations() {
         try { await persistServer(changed, dispatch); }
         catch {
           dispatch({ type: "add-server", server: changed });
-          throw new Error("Token sudah diganti di VPS, tetapi penyimpanan lokal gagal. Salin token baru di bawah sebelum menutup aplikasi; profil sesi ini sudah memakai token baru.");
+          throw new Error("Token sudah diganti on VPS, tetapi penyimpanan lokal gagal. Copy token baru on bawah sebelum menutup aplikasi; profil sesi ini sudah memakai token baru.");
         }
       }
-      setMessage(`Token ${kind} baru dibuat. Simpan dengan aman; jangan kirim ke log atau pesan publik.`);
+      setMessage(`Token ${kind} created. Store it securely; do not send it to logs or public messages.`);
     });
   };
 
-  if (!server) return <div className="empty"><h2>Belum ada server</h2><p>Tambahkan profil server terlebih dahulu.</p></div>;
+  if (!server) return <div className="empty"><h2>No servers yet</h2><p>Add a server profile first.</p></div>;
   return <div className="operations">
-    <header className="page-heading"><div><h1>Kelola VPS</h1><p>Service, log, pemeliharaan agent, dan kontrol akses.</p></div>
+    <header className="page-heading"><div><h1>Manage VPS</h1><p>Services, logs, agent maintenance, and access controls.</p></div>
       <label>Server<select value={server.id} onChange={e => setServerId(e.target.value)} disabled={busy}>{state.servers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
     </header>
-    <div className="platforms" role="group" aria-label="Bagian pengelolaan">{([
-      ["services", "Service & log"], ["maintenance", "Update agent"], ["security", "Keamanan"],
+    <div className="platforms" role="group" aria-label="Management sections">{([
+      ["services", "Services & logs"], ["maintenance", "Update agent"], ["security", "Security"],
     ] as const).map(([id, label]) => <button key={id} className={tab === id ? "selected" : ""} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}</div>
     {error && <p role="alert" className="operation-message text-bad">{error}</p>}
     {message && <p role="status" className="operation-message text-ok">{message}</p>}
-    {busy && <p role="status">Memproses…</p>}
+    {busy && <p role="status">Processing…</p>}
     {tab === "services" && <>
       <section className="panel operation-section" aria-labelledby="service-title">
-        <div className="section-heading"><h2 id="service-title">Service systemd</h2><button className="btn" disabled={busy} onClick={() => void refreshServices()}>Muat / refresh</button></div>
-        <div className="operation-body"><label>Cari service<input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="nginx, docker, vps-agent…" /></label>
-          <div className="table-scroll"><table><thead><tr><th>Service</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
+        <div className="section-heading"><h2 id="service-title">systemd services</h2><button className="btn" disabled={busy} onClick={() => void refreshServices()}>Load / refresh</button></div>
+        <div className="operation-body"><label>Search services<input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="nginx, docker, vps-agent…" /></label>
+          <div className="table-scroll"><table><thead><tr><th>Service</th><th>Status</th><th>Actions</th></tr></thead><tbody>
             {services.filter(s => `${s.unit} ${s.description} ${s.active}`.toLowerCase().includes(query.toLowerCase())).map(s => <tr key={s.unit}>
               <td><strong>{s.unit}</strong><small>{s.description}</small></td><td><span className={s.active === "failed" ? "text-bad" : s.active === "active" ? "text-ok" : "muted"}>{s.active} / {s.sub}</span></td>
-              <td><div className="row-actions">{(["start", "stop", "restart"] as const).map(action => <button className="btn small" key={action} disabled={busy} onClick={() => act(s.unit, action)}>{action}</button>)}<button className="btn small" onClick={() => { socket.current?.close(); socket.current = null; setFollowing(false); setUnit(s.unit); setLogs([]); }}>Pilih log</button></div></td>
+              <td><div className="row-actions">{(["start", "stop", "restart"] as const).map(action => <button className="btn small" key={action} disabled={busy} onClick={() => act(s.unit, action)}>{action}</button>)}<button className="btn small" onClick={() => { socket.current?.close(); socket.current = null; setFollowing(false); setUnit(s.unit); setLogs([]); }}>Select logs</button></div></td>
             </tr>)}
           </tbody></table></div>
-          {!services.length && <p className="muted">Klik Muat / refresh untuk membaca service dari VPS.</p>}
+          {!services.length && <p className="muted">Click Load / refresh to read services from the VPS.</p>}
         </div>
       </section>
-      <section className="panel operation-section" aria-labelledby="logs-title"><div className="section-heading"><h2 id="logs-title">Log langsung</h2><span className="muted">Maksimal 1.000 baris terakhir</span></div>
-        <div className="operation-body"><div className="operation-toolbar"><label>Nama service<input value={unit} disabled={following} onChange={e => setUnit(e.target.value)} placeholder="nginx.service" /></label><button className="btn" disabled={!/^[a-zA-Z0-9_.@:-]+\.service$/.test(unit)} onClick={followLogs}>{following ? "Jeda log" : "Ikuti log"}</button><label>Cari dalam log<input type="search" value={logQuery} onChange={e => setLogQuery(e.target.value)} /></label></div>
-          <p role="status" className="muted">{logStatus}</p><pre className="log-output" aria-label="Isi log">{logs.filter(line => line.toLowerCase().includes(logQuery.toLowerCase())).join("\n") || "Belum ada baris log."}</pre>
+      <section className="panel operation-section" aria-labelledby="logs-title"><div className="section-heading"><h2 id="logs-title">Live logs</h2><span className="muted">Up to the latest 1,000 lines</span></div>
+        <div className="operation-body"><div className="operation-toolbar"><label>Service name<input value={unit} disabled={following} onChange={e => setUnit(e.target.value)} placeholder="nginx.service" /></label><button className="btn" disabled={!/^[a-zA-Z0-9_.@:-]+\.service$/.test(unit)} onClick={followLogs}>{following ? "Pause logs" : "Follow logs"}</button><label>Search logs<input type="search" value={logQuery} onChange={e => setLogQuery(e.target.value)} /></label></div>
+          <p role="status" className="muted">{logStatus}</p><pre className="log-output" aria-label="Log content">{logs.filter(line => line.toLowerCase().includes(logQuery.toLowerCase())).join("\n") || "No log lines yet."}</pre>
         </div>
       </section>
     </>}
-    {tab === "maintenance" && <section className="panel operation-section"><div className="section-heading"><h2>Update dan rollback</h2><button className="btn" disabled={busy} onClick={() => void refreshMaintenance()}>Periksa versi dan status</button></div><div className="operation-body">
-      <p>Unduhan update berasal dari <a href="https://github.com/wignn/catly/releases" target="_blank" rel="noreferrer">GitHub Releases Catly</a>. Updater memeriksa SHA-256 dan memulihkan binary sebelumnya jika service gagal aktif.</p>
-      <dl className="status-grid"><dt>Versi terpasang</dt><dd>{update?.installed_version || diagnostics?.agent_version || "Belum diperiksa"}</dd><dt>Rilis terbaru</dt><dd>{latest || "Belum diperiksa"}</dd><dt>Alamat bind</dt><dd>{diagnostics?.bind || "Belum diperiksa"}</dd><dt>IP Tailscale</dt><dd>{diagnostics?.tailscale_ip || "Tidak tersedia / belum diperiksa"}</dd><dt>Status updater</dt><dd>{update?.state || "Belum diperiksa"}</dd></dl>
-      <div className="row-actions"><button className="btn primary" disabled={busy || !update || !latest || diagnostics?.role !== "admin"} onClick={() => maintain("update")}>Update agent</button><button className="btn" disabled={busy || !update?.rollback_available || diagnostics?.role !== "admin"} onClick={() => maintain("rollback")}>Rollback binary</button></div>
-      {update?.output && <pre className="log-output">{update.output}</pre>}<p className="muted">Jika endpoint belum tersedia, upgrade agent menggunakan installer rilis terbaru di VPS terlebih dahulu. Token dan bind dipertahankan.</p>
+    {tab === "maintenance" && <section className="panel operation-section"><div className="section-heading"><h2>Update and rollback</h2><button className="btn" disabled={busy} onClick={() => void refreshMaintenance()}>Check version and status</button></div><div className="operation-body">
+      <p>Updates are downloaded from <a href="https://github.com/wignn/catly/releases" target="_blank" rel="noreferrer">GitHub Releases Catly</a>. The updater verifies SHA-256 and restores the previous binary if the service fails to start.</p>
+      <dl className="status-grid"><dt>Installed version</dt><dd>{update?.installed_version || diagnostics?.agent_version || "Not checked"}</dd><dt>Latest release</dt><dd>{latest || "Not checked"}</dd><dt>Bind address</dt><dd>{diagnostics?.bind || "Not checked"}</dd><dt>IP Tailscale</dt><dd>{diagnostics?.tailscale_ip || "Unavailable / not checked"}</dd><dt>Status updater</dt><dd>{update?.state || "Not checked"}</dd></dl>
+      <div className="row-actions"><button className="btn primary" disabled={busy || !update || !latest || diagnostics?.role !== "admin"} onClick={() => maintain("update")}>Update agent</button><button className="btn" disabled={busy || !update?.rollback_available || diagnostics?.role !== "admin"} onClick={() => maintain("rollback")}>Roll back binary</button></div>
+      {update?.output && <pre className="log-output">{update.output}</pre>}<p className="muted">Jika endpoint belum tersedia, upgrade agent menggunakan installer rilis terbaru on VPS terlebih dahulu. Token dan bind dipertahankan.</p>
     </div></section>}
-    {tab === "security" && <section className="panel operation-section"><div className="section-heading"><h2>Token dan audit</h2></div><div className="operation-body">
-      <p>Token admin memberikan akses pengelolaan. Token read-only hanya untuk info, metrik, status service, dan diagnostik; tidak dapat membuka terminal, membaca file, atau menjalankan perintah.</p>
-      <div className="row-actions"><button className="btn" disabled={busy} onClick={() => rotate("readonly")}>Buat / ganti token read-only</button><button className="btn" disabled={busy} onClick={() => rotate("admin")}>Rotasi token admin</button><button className="btn" disabled={busy} onClick={() => void perform(async client => { setAudit((await client.request<{ entries: AuditEntry[] }>("/api/security/audit")).entries); })}>Muat audit</button></div>
-      {newToken && <div className="token-result"><label>Token baru — salin dan simpan dengan aman<input readOnly value={newToken} aria-label="Token baru" onFocus={e => e.target.select()} /></label><button className="btn small" onClick={() => setNewToken("")}>Sembunyikan</button></div>}
-      <p className="muted">Audit mencatat jenis operasi, endpoint, dan hasil tanpa menyimpan token, isi file, atau isi perintah. Audit sesi agent dibatasi dan hilang saat agent restart; gunakan journalctl untuk catatan service.</p>
-      <div className="table-scroll"><table><thead><tr><th>Waktu</th><th>Operasi</th><th>Status</th><th>Akses</th></tr></thead><tbody>{audit.slice().reverse().map((entry, index) => <tr key={`${entry.ts}-${index}`}><td>{new Date(entry.ts * 1000).toLocaleString()}</td><td>{entry.method} {entry.path}</td><td>{entry.status}</td><td>{entry.role}</td></tr>)}</tbody></table></div>
+    {tab === "security" && <section className="panel operation-section"><div className="section-heading"><h2>Tokens and audit</h2></div><div className="operation-body">
+      <p>Admin tokens grant management access. Read-only tokens allow only info, metrics, service status, and diagnostics; they cannot open terminals, read files, or run commands.</p>
+      <div className="row-actions"><button className="btn" disabled={busy} onClick={() => rotate("readonly")}>Create / rotate read-only token</button><button className="btn" disabled={busy} onClick={() => rotate("admin")}>Rotate admin token</button><button className="btn" disabled={busy} onClick={() => void perform(async client => { setAudit((await client.request<{ entries: AuditEntry[] }>("/api/security/audit")).entries); })}>Load audit</button></div>
+      {newToken && <div className="token-result"><label>New token — copy and store securely<input readOnly value={newToken} aria-label="New token" onFocus={e => e.target.select()} /></label><button className="btn small" onClick={() => setNewToken("")}>Hide</button></div>}
+      <p className="muted">The audit records operation types, endpoints, and results without storing tokens, file contents, or command contents. Agent session audit entries are limited and cleared on restart; use journalctl for service logs.</p>
+      <div className="table-scroll"><table><thead><tr><th>Time</th><th>Operation</th><th>Status</th><th>Access</th></tr></thead><tbody>{audit.slice().reverse().map((entry, index) => <tr key={`${entry.ts}-${index}`}><td>{new Date(entry.ts * 1000).toLocaleString()}</td><td>{entry.method} {entry.path}</td><td>{entry.status}</td><td>{entry.role}</td></tr>)}</tbody></table></div>
     </div></section>}
   </div>;
 }

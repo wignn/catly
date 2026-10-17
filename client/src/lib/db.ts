@@ -1,4 +1,4 @@
-// Penyimpanan lokal:
+// Local storage:
 // - Di Tauri: SQLite via tauri-plugin-sql (profil server, layout tab, riwayat metrik).
 // - Di browser biasa (npm run dev tanpa Tauri): fallback localStorage agar UI tetap bisa dites.
 import Database from "@tauri-apps/plugin-sql";

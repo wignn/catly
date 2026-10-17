@@ -6,7 +6,7 @@ try {
   globalThis.fetch = async () => new Response('', {status:401});
   await assert.rejects(client.info(), /401.*token/i);
   globalThis.fetch = async () => new Response('', {status:403});
-  await assert.rejects(client.info(), /403.*tidak diizinkan/);
+  await assert.rejects(client.info(), /403.*not authorized/);
   globalThis.fetch = async (_url, init) => {
     assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer secret');
     return new Response('{"ok":true}', {status:200});

@@ -4,22 +4,22 @@
 set -euo pipefail
 umask 077
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
-[[ $(uname -s) == Linux ]] || fail 'Linux dengan systemd diperlukan.'
-[[ $EUID -eq 0 ]] || fail 'Jalankan installer dengan sudo.'
-command -v systemctl >/dev/null || fail 'systemd tidak ditemukan.'
+[[ $(uname -s) == Linux ]] || fail 'Linux with systemd is required.'
+[[ $EUID -eq 0 ]] || fail 'Run the installer with sudo.'
+command -v systemctl >/dev/null || fail 'systemd was not found.'
 BIND="${VPS_AGENT_BIND:-127.0.0.1:18710}"
 if [[ -z "${VPS_AGENT_BIND:-}" && ! -f /etc/vps-agent/environment ]] && command -v tailscale >/dev/null; then
   TAILSCALE_IP=$(tailscale ip -4 2>/dev/null | head -n 1 || true)
   if [[ "$TAILSCALE_IP" =~ ^100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then BIND="$TAILSCALE_IP:18710"; fi
 fi
-[[ "$BIND" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]+$ ]] || fail 'VPS_AGENT_BIND harus berupa IPv4:port.'
+[[ "$BIND" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]+$ ]] || fail 'VPS_AGENT_BIND must use IPv4:port.'
 IFS='.' read -r -a OCTETS <<< "${BIND%:*}"
-[[ ${#OCTETS[@]} -eq 4 ]] || fail 'IPv4 tidak valid.'
+[[ ${#OCTETS[@]} -eq 4 ]] || fail 'Invalid IPv4 address.'
 for OCTET in "${OCTETS[@]}"; do
-  [[ "$OCTET" =~ ^[0-9]{1,3}$ ]] && (( 10#$OCTET <= 255 )) || fail 'IPv4 tidak valid.'
+  [[ "$OCTET" =~ ^[0-9]{1,3}$ ]] && (( 10#$OCTET <= 255 )) || fail 'Invalid IPv4 address.'
 done
 PORT="${BIND##*:}"
-[[ ${#PORT} -le 5 ]] && (( 10#$PORT >= 1 && 10#$PORT <= 65535 )) || fail 'Port harus 1-65535.'
+[[ ${#PORT} -le 5 ]] && (( 10#$PORT >= 1 && 10#$PORT <= 65535 )) || fail 'Port must be 1-65535.'
 WORK=$(mktemp -d)
 trap 'rm -rf -- "$WORK"' EXIT
 if [[ $# -eq 0 ]]; then
@@ -27,40 +27,40 @@ if [[ $# -eq 0 ]]; then
 fi
 if [[ "${1:-}" == --release-url ]]; then
   RELEASE_URL="${2:-}"
-  [[ "$RELEASE_URL" =~ ^https://[a-zA-Z0-9.-]+(:[0-9]+)?(/[a-zA-Z0-9._~/-]*)?$ ]] || fail 'URL rilis HTTPS tidak valid.'
-  command -v curl >/dev/null || fail 'curl diperlukan.'
-  command -v sha256sum >/dev/null || fail 'sha256sum diperlukan.'
+  [[ "$RELEASE_URL" =~ ^https://[a-zA-Z0-9.-]+(:[0-9]+)?(/[a-zA-Z0-9._~/-]*)?$ ]] || fail 'Invalid HTTPS release URL.'
+  command -v curl >/dev/null || fail 'curl is required.'
+  command -v sha256sum >/dev/null || fail 'sha256sum is required.'
   case "$(uname -m)" in
     x86_64) ARCH=x86_64 ;;
     aarch64|arm64) ARCH=aarch64 ;;
-    *) fail 'Arsitektur belum didukung. Gunakan binary lokal.' ;;
+    *) fail 'Unsupported architecture. Use a local binary.' ;;
   esac
   ASSET="vps-agent-linux-$ARCH"
   fetch() { curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 "$1" -o "$2"; }
   fetch "${RELEASE_URL%/}/$ASSET" "$WORK/$ASSET"
   fetch "${RELEASE_URL%/}/$ASSET.sha256" "$WORK/checksum"
   EXPECTED=$(awk 'NR==1 {print $1}' "$WORK/checksum")
-  [[ "$EXPECTED" =~ ^[a-fA-F0-9]{64}$ ]] || fail 'Format checksum tidak valid.'
+  [[ "$EXPECTED" =~ ^[a-fA-F0-9]{64}$ ]] || fail 'Invalid checksum format.'
   ACTUAL=$(sha256sum "$WORK/$ASSET")
-  [[ "${ACTUAL%% *}" == "${EXPECTED,,}" ]] || fail 'Checksum tidak cocok. Instalasi dibatalkan.'
+  [[ "${ACTUAL%% *}" == "${EXPECTED,,}" ]] || fail 'Checksum mismatch. Installation canceled.'
   BIN_SRC="$WORK/$ASSET"
 else
   BIN_SRC="${1:-./vps-agent}"
 fi
-[[ -f "$BIN_SRC" ]] || fail "Binary tidak ditemukan: $BIN_SRC"
+[[ -f "$BIN_SRC" ]] || fail "Binary not found: $BIN_SRC"
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)
 if [[ -f "$SCRIPT_DIR/update.sh" ]]; then
   UPDATER="$SCRIPT_DIR/update.sh"
 else
-  command -v curl >/dev/null || fail 'curl diperlukan untuk updater.'
+  command -v curl >/dev/null || fail 'curl is required for the updater.'
   UPDATER="$WORK/update.sh"
   UPDATE_URL="${RELEASE_URL:-https://github.com/wignn/catly/releases/latest/download}"
   curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' "$UPDATE_URL/update.sh" -o "$UPDATER"
   curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' "$UPDATE_URL/update.sh.sha256" -o "$WORK/update.sha256"
   EXPECTED=$(awk 'NR==1 {print $1}' "$WORK/update.sha256")
-  [[ "$EXPECTED" =~ ^[a-fA-F0-9]{64}$ ]] || fail 'Checksum updater tidak valid.'
+  [[ "$EXPECTED" =~ ^[a-fA-F0-9]{64}$ ]] || fail 'Invalid updater checksum.'
   ACTUAL=$(sha256sum "$UPDATER")
-  [[ "${ACTUAL%% *}" == "${EXPECTED,,}" ]] || fail 'Checksum updater tidak cocok.'
+  [[ "${ACTUAL%% *}" == "${EXPECTED,,}" ]] || fail 'Updater checksum mismatch.'
 fi
 install -d -m 755 /opt/vps-agent
 install -d -m 700 /etc/vps-agent
@@ -119,8 +119,8 @@ systemctl daemon-reload
 systemctl enable vps-agent
 systemctl restart vps-agent
 sleep 1
-systemctl is-active --quiet vps-agent || fail 'Agent gagal berjalan. Periksa: journalctl -u vps-agent -n 50'
-printf '\nvps-agent aktif. Konfigurasi: /etc/vps-agent/environment\nBinary: /usr/local/bin/vps-agent\nToken untuk client:\n'
+systemctl is-active --quiet vps-agent || fail 'Agent failed to start. Check: journalctl -u vps-agent -n 50'
+printf '\nvps-agent is running. Configuration: /etc/vps-agent/environment\nBinary: /usr/local/bin/vps-agent\nToken for the client:\n'
 cat /etc/vps-agent/token
-printf '\n\nToken lama dipertahankan saat upgrade.\n'
-printf 'Instalasi baru memakai IP Tailscale yang sudah aktif, atau loopback. Bind upgrade tetap dipertahankan.\n'
+printf '\n\nThe existing token is preserved during upgrades.\n'
+printf 'New installations use an active Tailscale IP or loopback. Upgrades preserve the bind address.\n'

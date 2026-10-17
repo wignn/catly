@@ -2,7 +2,7 @@
 
 use crate::AppState;
 use axum::extract::ws::{Message, WebSocket};
-use axum::{extract::State, Json};
+use axum::{extract::State, http::StatusCode, Json};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -143,10 +143,17 @@ pub fn snapshot(
     }
 }
 
-pub async fn http_metrics(State(state): State<AppState>) -> Json<MetricsSnapshot> {
-    let mut sys = state.sys.lock().unwrap();
-    let mut prev = state.net_prev.lock().unwrap();
-    Json(snapshot(&mut sys, &mut prev))
+async fn collect(state: AppState) -> Result<MetricsSnapshot, StatusCode> {
+    // Disk/CPU enumeration and mutex waits must not block terminal socket handling.
+    tokio::task::spawn_blocking(move || {
+        let mut sys = state.sys.lock().unwrap();
+        let mut prev = state.net_prev.lock().unwrap();
+        snapshot(&mut sys, &mut prev)
+    }).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+pub async fn http_metrics(State(state): State<AppState>) -> Result<Json<MetricsSnapshot>, StatusCode> {
+    collect(state).await.map(Json)
 }
 
 /// Stream metrik tiap 1 detik via WebSocket.
@@ -157,10 +164,9 @@ pub async fn stream_metrics(mut socket: WebSocket, state: AppState, token: Strin
         if state.security.lock().unwrap().role(&token).is_none() {
             break;
         }
-        let snap = {
-            let mut sys = state.sys.lock().unwrap();
-            let mut prev = state.net_prev.lock().unwrap();
-            snapshot(&mut sys, &mut prev)
+        let snap = match collect(state.clone()).await {
+            Ok(snap) => snap,
+            Err(_) => break,
         };
         let text = serde_json::to_string(&snap).unwrap();
         if socket.send(Message::Text(text)).await.is_err() {

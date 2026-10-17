@@ -30,7 +30,7 @@ export class AgentClient {
   }
 
   async request<T>(path: string, init?: RequestInit, timeoutMs = this.timeoutMs): Promise<T> {
-    if (!path.startsWith("/api/") || path.includes("..") || path.includes("#")) throw new Error("Path API tidak sah");
+    if (!path.startsWith("/api/") || path.includes("..") || path.includes("#")) throw new Error("Invalid API path");
     const target = `${this.base}${path}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -45,15 +45,15 @@ export class AgentClient {
       headers,
       signal: controller.signal,
     });
-    if (res.status === 401) throw new Error(`HTTP 401: token salah / tidak sah. Periksa token profil. Target: ${target}`);
+    if (res.status === 401) throw new Error(`HTTP 401: incorrect or invalid token. Check the profile token. Target: ${target}`);
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status} dari ${target}. ${res.status === 403 ? "Token tidak diizinkan untuk tindakan ini." : "Periksa status agent dan coba lagi."}`);
+      throw new Error(`HTTP ${res.status} from ${target}. ${res.status === 403 ? "Token is not authorized for this action." : "Check agent status and try again."}`);
     }
     return (await res.json()) as T;
     } catch (error) {
-      if (init?.signal?.aborted) throw new Error(`Permintaan dibatalkan. Target: ${target}`);
-      if (controller.signal.aborted) throw new Error(`Timeout ${timeoutMs} ms. Target: ${target}. Periksa alamat, jaringan, dan bind agent.`);
-      if (error instanceof TypeError) throw new Error(`Jaringan gagal. Target: ${target}. Periksa alamat/port, agent aktif, bind, dan jalur jaringan/firewall. Browser juga dapat memblokir HTTPS campuran, sertifikat atau CORS; penyebab tepat belum diketahui.`);
+      if (init?.signal?.aborted) throw new Error(`Request canceled. Target: ${target}`);
+      if (controller.signal.aborted) throw new Error(`Timeout ${timeoutMs} ms. Target: ${target}. Check the address, network, and agent bind address.`);
+      if (error instanceof TypeError) throw new Error(`Network request failed. Target: ${target}. Check the address/port, running agent, bind address, and network/firewall route. The browser may also block mixed HTTPS content, certificates, or CORS; the exact cause is unknown.`);
       throw error;
     } finally {
       clearTimeout(timeout);

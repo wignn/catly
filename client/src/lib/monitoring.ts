@@ -23,13 +23,13 @@ export function recordConnection(id: string, next: ConnectionStatus): void {
 export function evaluateAlerts(serverId: string, snap: MetricsSnapshot | null, services: ServiceInfo[], offline: boolean, ts = Date.now()): LocalAlert[] {
   const result: LocalAlert[] = [];
   const add = (kind: string, message: string) => result.push({id:`${serverId}:${kind}`,serverId,kind,message,ts});
-  if (offline) add("offline", "Koneksi agent gagal; lihat diagnostik koneksi");
+  if (offline) add("offline", "Agent connection failed; see connection diagnostics");
   if (snap) {
-    if (snap.cpu.total >= 90) add("cpu", `CPU tinggi: ${snap.cpu.total.toFixed(1)}%`);
-    if (snap.mem.total > 0 && snap.mem.used / snap.mem.total >= .9) add("ram", "RAM terpakai ≥ 90%");
-    for (const disk of snap.disks) if (disk.total > 0 && disk.used / disk.total >= .9) add(`disk:${disk.mount}`, `Disk ${disk.mount} terpakai ≥ 90%`);
+    if (snap.cpu.total >= 90) add("cpu", `High CPU: ${snap.cpu.total.toFixed(1)}%`);
+    if (snap.mem.total > 0 && snap.mem.used / snap.mem.total >= .9) add("ram", "RAM usage ≥ 90%");
+    for (const disk of snap.disks) if (disk.total > 0 && disk.used / disk.total >= .9) add(`disk:${disk.mount}`, `Disk ${disk.mount} usage ≥ 90%`);
   }
-  for (const service of services.slice(0, 5000)) if (service.active === "failed") add(`service:${service.unit}`, `Service gagal: ${service.unit}`);
+  for (const service of services.slice(0, 5000)) if (service.active === "failed") add(`service:${service.unit}`, `Service failed: ${service.unit}`);
   return result.slice(0, 100);
 }
 

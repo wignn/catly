@@ -1,5 +1,5 @@
 //! vps-agent: HTTP + WebSocket agent yang berjalan di setiap VPS.
-//! Menyediakan: info, metrik realtime, terminal PTY, exec, proses, service systemd,
+//! Provides info, realtime metrics, PTY terminals, exec, processes, systemd services,
 //! info jaringan, file manager, dan tail log. Lihat docs/AGENT_PROTOCOL.md.
 
 mod maintenance;
@@ -50,7 +50,7 @@ fn ws_token_ok(state: &AppState, q: &TokenQuery, path: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Middleware autentikasi untuk semua route /api/*
+/// Authentication middleware for all /api/* routes
 async fn auth_middleware(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -146,7 +146,7 @@ async fn main() {
     let security = security::load().expect("cannot load or persist agent tokens");
     let bind = std::env::var("VPS_AGENT_BIND").unwrap_or_else(|_| "127.0.0.1:18710".into());
 
-    // Warmup agar pembacaan CPU pertama tidak 0
+    // Warm up so the first CPU reading is not zero
     let mut sys = System::new_all();
     sys.refresh_cpu_all();
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -192,7 +192,7 @@ async fn main() {
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr: SocketAddr = bind.parse().expect("VPS_AGENT_BIND tidak valid");
+    let addr: SocketAddr = bind.parse().expect("Invalid VPS_AGENT_BIND");
     eprintln!("[vps-agent] v{VERSION} mendengarkan di {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
