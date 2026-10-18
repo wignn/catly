@@ -52,14 +52,17 @@ Only run scripts from publishers you trust. To review scripts before running the
 
 Desktop profiles are stored in SQLite; tokens are stored in Windows Credential Manager. Legacy SQLite tokens are migrated after secure storage verification succeeds. Browser mode stores profiles in localStorage and tokens only in page memory: after reloading, re-enter tokens via **Edit**. The agent provides shell access as root; use Tailscale or an HTTPS reverse proxy. The service restricts filesystem writes via systemd; write operations outside permitted directories require service unit adjustments.
 
-## Advanced Management (v0.2.0)
+## Core & Advanced Features (v1.0.0)
 
+- **Multi-Server Broadcast Terminal:** Broadcast keystrokes and shell commands simultaneously across split panes to multiple VPS nodes at once. Features a glowing broadcast safety indicator and dedicated command broadcast bar.
+- **Docker Container Manager:** List containers, inspect status and ports, start, stop, restart, and inspect recent container logs directly from the console.
+- **Persistent View State:** Instant zero-refresh navigation between Terminal, Dashboard, Server List, Manage VPS, and File Manager without losing running terminal processes, WebSocket connections, or form state.
 - **Servers:** Edit profiles, test connection with timeout and target URL, view current status, agent version, latency, and last connection timestamp. Network diagnostics display clear verification steps without guessing firewall/CORS issues.
 - **Monitoring:** CPU/RAM/network history up to seven days, 1h/24h/7d charts, and alerts for CPU/RAM/disk ≥90%, offline server, or failed services. Windows notifications use the official Tauri plugin and require opt-in. Sampling and notifications run while the app is open; no data is sent to third-party services.
 - **VPS Management → Services & logs:** Search systemd services, start/stop/restart with confirmation, and stream/search live logs (up to 1,000 recent lines).
 - **Files:** Directory navigation, uploads with drag-and-drop support, downloads, and text editing up to 2 MB. Existing files are backed up as `*.vps-backup-*` before replacement. Agent writes require directories owned by the agent user without group/other write permissions; use SFTP for directories owned by other users. Access restrictions also follow systemd unit settings.
 - **Desktop SFTP:** Transfers via Windows OpenSSH Client using SSH keys or SSH agent. Connect via `ssh -p PORT USER@HOST` first to inspect fingerprints and store host keys. Encrypted keys must be loaded in the SSH agent. SFTP writes to temporary files before atomic replacement and does not create agent backups; servers without rename replacement support may reject overwrites.
-- **Agent Updates:** Check Catly versions, request latest stable updates, or rollback to the previous binary. The systemd updater verifies SHA-256 and architecture, and automatically restores the previous binary if health checks fail. This endpoint requires agent and installer v0.2.0+; initial upgrades from v0.1.0 use the Linux install command above.
+- **Agent Updates:** Check Catly versions, request latest stable updates, or rollback to the previous binary. The systemd updater verifies SHA-256 and architecture, and automatically restores the previous binary if health checks fail.
 - **Security:** Rotate admin tokens, create monitoring-only read-only tokens, and audit operations. Read-only tokens cannot open terminals/logs, read files, or execute commands. Rotated tokens immediately revoke REST access and active WebSocket sessions. Session audit log is capped at 200 entries and never logs command contents or tokens.
 
 Tailscale must be pre-installed and authenticated on both VPS and Windows. The installer does not register devices with Tailscale accounts or open public firewalls. If legacy configurations still use loopback, explicitly update the bind address as shown above.

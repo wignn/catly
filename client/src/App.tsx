@@ -33,17 +33,20 @@ function Shell() {
           <button className={state.view === "operations" ? "active" : ""} onClick={() => dispatch({ type: "set-view", view: "operations" })}><span aria-hidden="true">⚙</span> Manage VPS</button>
           <button className={state.view === "files" ? "active" : ""} onClick={() => dispatch({ type: "set-view", view: "files" })}><span aria-hidden="true">▱</span> File</button>
         </nav>
-        <div className="side-foot"><strong>Local workspace</strong><p>Server profiles are stored on this device.</p><span>VPS Manager <span className="version">v0.2.0</span></span></div>
+        <div className="side-foot"><strong>Local workspace</strong><p>Server profiles are stored on this device.</p><span>VPS Manager <span className="version">v1.0.0</span></span></div>
       </aside>
       <main className="main">
         <div className="topbar"><span>Workspace <span className="breadcrumb">/</span> {viewNames[state.view]}</span><span className="local-badge">Local storage</span></div>
         <div className={"page-content" + (state.view === "terminal" ? " terminal-content" : "")}>
-        {state.view === "servers" && <ServerList />}
-        {state.view === "dashboard" && <Dashboard />}
-        {state.view === "terminal" && <TerminalView />}
-        <div hidden={state.view !== "monitoring"}><Monitoring /></div>
-        {state.view === "operations" && <Operations />}
-        {state.view === "files" && <><div className="operation-toolbar"><label>Server<select aria-label="File manager server" value={activeServer?.id ?? ""} onChange={e => dispatch({ type: "set-active-server", id: e.target.value })}>{state.servers.map(server => <option key={server.id} value={server.id}>{server.name}</option>)}</select></label></div>{activeServer ? <FileManager key={`${activeServer.id}:${activeServer.host}:${activeServer.port}`} server={activeServer} /> : <div className="empty"><h2>No servers yet</h2><p>Add a server profile first.</p></div>}</>}
+          <div className="view-pane" hidden={state.view !== "servers"}><ServerList /></div>
+          <div className="view-pane" hidden={state.view !== "dashboard"}><Dashboard active={state.view === "dashboard"} /></div>
+          <div className="view-pane" hidden={state.view !== "terminal"}><TerminalView /></div>
+          <div className="view-pane" hidden={state.view !== "monitoring"}><Monitoring /></div>
+          <div className="view-pane" hidden={state.view !== "operations"}><Operations /></div>
+          <div className="view-pane" hidden={state.view !== "files"}>
+            <div className="operation-toolbar"><label>Server<select aria-label="File manager server" value={activeServer?.id ?? ""} onChange={e => dispatch({ type: "set-active-server", id: e.target.value })}>{state.servers.map(server => <option key={server.id} value={server.id}>{server.name}</option>)}</select></label></div>
+            {activeServer ? <FileManager key={`${activeServer.id}:${activeServer.host}:${activeServer.port}`} server={activeServer} /> : <div className="empty"><h2>No servers yet</h2><p>Add a server profile first.</p></div>}
+          </div>
         </div>
       </main>
     </div>

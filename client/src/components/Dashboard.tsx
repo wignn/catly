@@ -25,7 +25,7 @@ function Bar({ pct, color }: { pct: number; color: string }) {
   );
 }
 
-function ServerCard({ server }: { server: Server }) {
+function ServerCard({ server, active = true }: { server: Server; active?: boolean }) {
   const [snap, setSnap] = useState<MetricsSnapshot | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<{ hostname: string; os: string; uptime: number; version: string; latency: number } | null>(null);
@@ -33,12 +33,13 @@ function ServerCard({ server }: { server: Server }) {
   const { dispatch } = useStore();
 
   useEffect(() => {
+    if (!active) return;
     const client = new AgentClient(server);
     let alive = true;
     let ws: WebSocket | null = null;
     let lastSaved = 0;
     let retry: ReturnType<typeof setTimeout>;
-    setSnap(null); setErr(null); setInfo(null); hist.current=[];
+    setErr(null);
 
     const started=performance.now();
     client.info().then((i) => {
@@ -86,7 +87,7 @@ function ServerCard({ server }: { server: Server }) {
     connect();
 
     return () => { alive = false; clearTimeout(retry); try { ws?.close(); } catch { /* abaikan */ } };
-  }, [server]);
+  }, [server, active]);
 
   const memPct = snap ? (snap.mem.used / Math.max(1, snap.mem.total)) * 100 : 0;
   const swapPct = snap && snap.swap.total > 0 ? (snap.swap.used / snap.swap.total) * 100 : 0;
@@ -145,10 +146,10 @@ function ServerCard({ server }: { server: Server }) {
   );
 }
 
-export default function Dashboard() {
+export default function Dashboard({ active = true }: { active?: boolean }) {
   const { state, dispatch } = useStore();
   return <section>
     <header className="page-heading"><div><h1>Dashboard</h1><p>Monitor resource usage and connections for every VPS in real time.</p></div><span className="muted">{state.servers.length} registered servers</span></header>
-    {!state.servers.length ? <div className="empty panel"><h3>No servers to monitor yet</h3><p>Add a VPS to view CPU, memory, disk, and network traffic.</p><button className="btn primary" onClick={() => dispatch({ type: "set-view", view: "servers" })}>Add server</button></div> : <div className="dash">{state.servers.map(s => <ServerCard key={s.id} server={s} />)}</div>}
+    {!state.servers.length ? <div className="empty panel"><h3>No servers to monitor yet</h3><p>Add a VPS to view CPU, memory, disk, and network traffic.</p><button className="btn primary" onClick={() => dispatch({ type: "set-view", view: "servers" })}>Add server</button></div> : <div className="dash">{state.servers.map(s => <ServerCard key={s.id} server={s} active={active} />)}</div>}
   </section>;
 }

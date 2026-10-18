@@ -9,9 +9,22 @@ import "@xterm/xterm/css/xterm.css";
 interface Props {
   server: Server;
   paneKey: string; // berubah -> reconnect (ganti server)
+  paneId?: string;
+  broadcastActive?: boolean;
+  onRegisterSender?: (paneId: string, send: (data: string) => void) => void;
+  onUnregisterSender?: (paneId: string) => void;
+  onBroadcastData?: (sourcePaneId: string, data: string) => void;
 }
 
-export default function TerminalPane({ server, paneKey }: Props) {
+export default function TerminalPane({
+  server,
+  paneKey,
+  paneId,
+  broadcastActive,
+  onRegisterSender,
+  onUnregisterSender,
+  onBroadcastData,
+}: Props) {
   const divRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
 
@@ -41,6 +54,14 @@ export default function TerminalPane({ server, paneKey }: Props) {
     const ws = client.ptySocket(term.cols, term.rows);
     let alive = true;
 
+    if (paneId && onRegisterSender) {
+      onRegisterSender(paneId, (data: string) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ t: "input", data }));
+        }
+      });
+    }
+
     ws.onopen = () => {
       term.writeln("\x1b[90m[connected to " + server.name + " — " + server.host + "]\x1b[0m");
     };
@@ -63,6 +84,9 @@ export default function TerminalPane({ server, paneKey }: Props) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ t: "input", data }));
       }
+      if (broadcastActive && paneId && onBroadcastData) {
+        onBroadcastData(paneId, data);
+      }
     });
 
     const ro = new ResizeObserver(() => {
@@ -77,6 +101,9 @@ export default function TerminalPane({ server, paneKey }: Props) {
     ro.observe(el);
 
     return () => {
+      if (paneId && onUnregisterSender) {
+        onUnregisterSender(paneId);
+      }
       alive = false;
       ro.disconnect();
       dispData.dispose();
@@ -85,7 +112,7 @@ export default function TerminalPane({ server, paneKey }: Props) {
       termRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneKey, server.id]);
+  }, [paneKey, server.id, broadcastActive]);
 
   return <div ref={divRef} className="term-pane" />;
 }

@@ -104,6 +104,37 @@ export class AgentClient {
       body: JSON.stringify({ pid, signal }),
     });
   }
+
+  containers(): Promise<ContainersResult> {
+    return this.request<ContainersResult>("/api/containers");
+  }
+
+  containerAction(id: string, action: "start" | "stop" | "restart" | "kill"): Promise<{ ok: boolean; error?: string }> {
+    return this.request("/api/containers/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action }),
+    }, 35000);
+  }
+
+  containerLogs(id: string, tail = 200): Promise<{ ok: boolean; logs?: string; error?: string }> {
+    return this.request(`/api/containers/logs?id=${encodeURIComponent(id)}&tail=${tail}`, undefined, 20000);
+  }
 }
 
 export interface ServiceInfo { unit: string; description: string; active: string; sub: string; load: string }
+
+export interface ContainerItem {
+  id: string;
+  names: string;
+  image: string;
+  state: string;
+  status: string;
+  ports: string;
+}
+
+export interface ContainersResult {
+  available: boolean;
+  containers: ContainerItem[];
+  error?: string;
+}

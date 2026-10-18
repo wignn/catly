@@ -264,6 +264,140 @@ pub async fn service_action(Json(req): Json<ServiceActionReq>) -> Json<serde_jso
     }
 }
 
+// ---------------------------------------------------------------- containers
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ContainerInfo {
+    pub id: String,
+    pub names: String,
+    pub image: String,
+    pub state: String,
+    pub status: String,
+    pub ports: String,
+}
+
+pub async fn list_containers() -> Json<serde_json::Value> {
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        Command::new("docker")
+            .args(["ps", "-a", "--format", "{{json .}}"])
+            .output(),
+    )
+    .await;
+
+    match out {
+        Ok(Ok(o)) if o.status.success() => {
+            let mut containers = Vec::new();
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                    let id = v.get("ID").and_then(|s| s.as_str()).unwrap_or_default();
+                    let names = v.get("Names").and_then(|s| s.as_str()).unwrap_or_default();
+                    let image = v.get("Image").and_then(|s| s.as_str()).unwrap_or_default();
+                    let state = v.get("State").and_then(|s| s.as_str()).unwrap_or_default();
+                    let status = v.get("Status").and_then(|s| s.as_str()).unwrap_or_default();
+                    let ports = v.get("Ports").and_then(|s| s.as_str()).unwrap_or_default();
+                    containers.push(ContainerInfo {
+                        id: id.to_string(),
+                        names: names.to_string(),
+                        image: image.to_string(),
+                        state: state.to_string(),
+                        status: status.to_string(),
+                        ports: ports.to_string(),
+                    });
+                }
+            }
+            Json(serde_json::json!({
+                "available": true,
+                "containers": containers
+            }))
+        }
+        Ok(Ok(o)) => {
+            let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            Json(serde_json::json!({
+                "available": false,
+                "containers": [],
+                "error": if err.is_empty() { "Docker command failed".to_string() } else { err }
+            }))
+        }
+        _ => Json(serde_json::json!({
+            "available": false,
+            "containers": [],
+            "error": "Docker is not installed or daemon is not reachable"
+        })),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ContainerActionReq {
+    pub id: String,
+    pub action: String,
+}
+
+pub async fn container_action(Json(req): Json<ContainerActionReq>) -> Json<serde_json::Value> {
+    if !crate::security_policy::container_name_or_id(&req.id) {
+        return Json(serde_json::json!({ "ok": false, "error": "invalid container identifier" }));
+    }
+    let action = match req.action.as_str() {
+        "start" | "stop" | "restart" | "kill" => req.action.as_str(),
+        _ => return Json(serde_json::json!({ "ok": false, "error": "unknown action" })),
+    };
+    let res = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        Command::new("docker")
+            .arg(action)
+            .arg(&req.id)
+            .output(),
+    )
+    .await;
+    match res {
+        Ok(Ok(o)) if o.status.success() => Json(serde_json::json!({ "ok": true })),
+        Ok(Ok(o)) => Json(serde_json::json!({
+            "ok": false,
+            "error": String::from_utf8_lossy(&o.stderr).trim().to_string()
+        })),
+        _ => Json(serde_json::json!({ "ok": false, "error": "failed or timed out" })),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ContainerLogsReq {
+    pub id: String,
+    pub tail: Option<u32>,
+}
+
+pub async fn container_logs(Query(req): Query<ContainerLogsReq>) -> Json<serde_json::Value> {
+    if !crate::security_policy::container_name_or_id(&req.id) {
+        return Json(serde_json::json!({ "ok": false, "error": "invalid container identifier" }));
+    }
+    let tail_str = req.tail.unwrap_or(200).clamp(1, 1000).to_string();
+    let res = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        Command::new("docker")
+            .args(["logs", "--tail", &tail_str, &req.id])
+            .output(),
+    )
+    .await;
+    match res {
+        Ok(Ok(o)) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            let combined = if stdout.is_empty() {
+                stderr.into_owned()
+            } else if stderr.is_empty() {
+                stdout.into_owned()
+            } else {
+                format!("{}\n{}", stdout, stderr)
+            };
+            Json(serde_json::json!({ "ok": true, "logs": combined }))
+        }
+        _ => Json(serde_json::json!({ "ok": false, "error": "failed to fetch container logs" })),
+    }
+}
+
 // ---------------------------------------------------------------- jaringan
 
 #[derive(Serialize)]

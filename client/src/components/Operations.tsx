@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AgentClient } from "../lib/api";
+import { AgentClient, type ContainersResult } from "../lib/api";
 import { persistServer, useStore } from "../lib/store";
 
 interface Service { unit: string; active: string; sub: string; description: string }
@@ -12,7 +12,7 @@ export default function Operations() {
   const { state, dispatch } = useStore();
   const [serverId, setServerId] = useState("");
   const server = state.servers.find(s => s.id === serverId) ?? state.servers[0];
-  const [tab, setTab] = useState<"services" | "maintenance" | "security">("services");
+  const [tab, setTab] = useState<"services" | "containers" | "maintenance" | "security">("services");
   const [services, setServices] = useState<Service[]>([]);
   const [query, setQuery] = useState("");
   const [unit, setUnit] = useState("vps-agent.service");
@@ -21,6 +21,9 @@ export default function Operations() {
   const [following, setFollowing] = useState(false);
   const [logStatus, setLogStatus] = useState("");
   const socket = useRef<WebSocket | null>(null);
+  const [containersData, setContainersData] = useState<ContainersResult | null>(null);
+  const [containerQuery, setContainerQuery] = useState("");
+  const [selectedContainerLogs, setSelectedContainerLogs] = useState<{ id: string; name: string; logs: string } | null>(null);
   const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
   const [update, setUpdate] = useState<UpdateStatus | null>(null);
   const [latest, setLatest] = useState("");
@@ -36,13 +39,15 @@ export default function Operations() {
     socket.current?.close(); socket.current = null;
     setFollowing(false); setServices([]); setLogs([]); setDiagnostics(null);
     setUpdate(null); setAudit([]); setNewToken(""); setError(""); setMessage("");
-    setLatest("");
+    setLatest(""); setContainersData(null); setSelectedContainerLogs(null);
   }, [server?.id]);
 
   useEffect(() => {
     if (!server) return;
     if (tab === "services" && services.length === 0) {
       void refreshServices();
+    } else if (tab === "containers" && !containersData) {
+      void refreshContainers();
     } else if (tab === "maintenance" && !diagnostics) {
       void refreshMaintenance();
     } else if (tab === "security" && audit.length === 0) {
@@ -66,6 +71,33 @@ export default function Operations() {
   const refreshServices = () => perform(async client => {
     const result = await client.services();
     setServices(result.services);
+  });
+
+  const refreshContainers = () => perform(async client => {
+    const result = await client.containers();
+    setContainersData(result);
+  });
+
+  const actContainer = (id: string, name: string, action: "start" | "stop" | "restart") => {
+    if (!confirm(`${action} container ${name || id} on ${server?.name}?`)) return;
+    void perform(async client => {
+      const result = await client.containerAction(id, action);
+      if (result.ok) {
+        setMessage(`Container ${name || id} ${action} successful.`);
+        void refreshContainers();
+      } else {
+        setError(result.error || `Failed to ${action} container.`);
+      }
+    });
+  };
+
+  const viewContainerLogs = (id: string, name: string) => perform(async client => {
+    const result = await client.containerLogs(id, 200);
+    if (result.ok) {
+      setSelectedContainerLogs({ id, name, logs: result.logs || "No logs available." });
+    } else {
+      setError(result.error || "Failed to load container logs.");
+    }
   });
 
   const act = (service: string, action: "start" | "stop" | "restart") => {
@@ -150,11 +182,105 @@ export default function Operations() {
       <label>Server<select value={server.id} onChange={e => setServerId(e.target.value)} disabled={busy}>{state.servers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
     </header>
     <div className="platforms" role="group" aria-label="Management sections">{([
-      ["services", "Services & logs"], ["maintenance", "Update agent"], ["security", "Security"],
+      ["services", "Services & logs"], ["containers", "Docker containers"], ["maintenance", "Update agent"], ["security", "Security"],
     ] as const).map(([id, label]) => <button key={id} className={tab === id ? "selected" : ""} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}</div>
     {error && <p role="alert" className="operation-message text-bad">{error}</p>}
     {message && <p role="status" className="operation-message text-ok">{message}</p>}
     {busy && <p role="status">Processing…</p>}
+    {tab === "containers" && (
+      <section className="panel operation-section" aria-labelledby="container-title">
+        <div className="section-heading">
+          <h2 id="container-title">Docker containers</h2>
+          <button className="btn" disabled={busy} onClick={() => void refreshContainers()}>Load / refresh</button>
+        </div>
+        <div className="operation-body">
+          {containersData && !containersData.available && (
+            <div className="empty">
+              <h3>Docker not available</h3>
+              <p>{containersData.error || "Docker is not installed or the Docker daemon is not active on this VPS."}</p>
+            </div>
+          )}
+          {containersData?.available && (
+            <>
+              <label>Search containers
+                <input
+                  type="search"
+                  value={containerQuery}
+                  onChange={e => setContainerQuery(e.target.value)}
+                  placeholder="Filter by name, image, or status..."
+                />
+              </label>
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Container</th>
+                      <th>Image</th>
+                      <th>Status</th>
+                      <th>Ports</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {containersData.containers
+                      .filter(c => `${c.names} ${c.image} ${c.id} ${c.state} ${c.status}`.toLowerCase().includes(containerQuery.toLowerCase()))
+                      .map(c => (
+                        <tr key={c.id}>
+                          <td>
+                            <strong>{c.names.replace(/^\//, "") || c.id}</strong>
+                            <small>ID: {c.id.slice(0, 12)}</small>
+                          </td>
+                          <td><code>{c.image}</code></td>
+                          <td>
+                            <span className={c.state === "running" ? "text-ok" : "muted"}>
+                              ● {c.status || c.state}
+                            </span>
+                          </td>
+                          <td><small>{c.ports || "—"}</small></td>
+                          <td>
+                            <div className="row-actions">
+                              {c.state === "running" ? (
+                                <>
+                                  <button className="btn small" disabled={busy} onClick={() => actContainer(c.id, c.names, "restart")}>Restart</button>
+                                  <button className="btn small" disabled={busy} onClick={() => actContainer(c.id, c.names, "stop")}>Stop</button>
+                                </>
+                              ) : (
+                                <button className="btn small primary" disabled={busy} onClick={() => actContainer(c.id, c.names, "start")}>Start</button>
+                              )}
+                              <button className="btn small" disabled={busy} onClick={() => void viewContainerLogs(c.id, c.names)}>Logs</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+              {!containersData.containers.length && (
+                <p className="muted">No containers found on this VPS.</p>
+              )}
+            </>
+          )}
+          {!containersData && (
+            <p className="muted">{busy ? "Querying Docker daemon…" : "Click Load / refresh to query Docker containers."}</p>
+          )}
+
+          {selectedContainerLogs && (
+            <div style={{ marginTop: "24px" }}>
+              <div className="section-heading" style={{ padding: "12px 0" }}>
+                <h3>Logs: {selectedContainerLogs.name} ({selectedContainerLogs.id.slice(0, 12)})</h3>
+                <div className="row-actions">
+                  <button className="btn small" disabled={busy} onClick={() => void viewContainerLogs(selectedContainerLogs.id, selectedContainerLogs.name)}>Refresh logs</button>
+                  <button className="btn small" onClick={() => setSelectedContainerLogs(null)}>Close logs</button>
+                </div>
+              </div>
+              <pre className="log-output" aria-label="Container log output">
+                {selectedContainerLogs.logs || "No logs output recorded."}
+              </pre>
+            </div>
+          )}
+        </div>
+      </section>
+    )}
     {tab === "services" && <>
       <section className="panel operation-section" aria-labelledby="service-title">
         <div className="section-heading"><h2 id="service-title">systemd services</h2><button className="btn" disabled={busy} onClick={() => void refreshServices()}>Load / refresh</button></div>

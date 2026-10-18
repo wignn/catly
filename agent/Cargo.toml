@@ -1,6 +1,6 @@
 [package]
 name = "vps-agent"
-version = "0.2.0"
+version = "1.0.0"
 edition = "2021"
 description = "Agent VPS untuk aplikasi VPS Manager: metrik realtime, terminal PTY, eksekusi perintah, proses, service, file manager via HTTP+WebSocket"
 

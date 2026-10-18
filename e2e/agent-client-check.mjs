@@ -12,6 +12,28 @@ try {
     return new Response('{"ok":true}', {status:200});
   };
   assert.deepEqual(await client.request('/api/info', {headers:new Headers({'authorization':'Bearer other'})}), {ok:true});
+  // Verify container API methods
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /\/api\/containers$/);
+    return new Response(JSON.stringify({ available: true, containers: [{ id: 'c1', names: 'app', image: 'node', state: 'running', status: 'Up 2h', ports: '80->80' }] }), { status: 200 });
+  };
+  const cRes = await client.containers();
+  assert.equal(cRes.available, true);
+  assert.equal(cRes.containers[0].names, 'app');
+
+  globalThis.fetch = async (url, init) => {
+    assert.match(String(url), /\/api\/containers\/action$/);
+    assert.deepEqual(JSON.parse(init.body), { id: 'c1', action: 'restart' });
+    return new Response('{"ok":true}', { status: 200 });
+  };
+  assert.deepEqual(await client.containerAction('c1', 'restart'), { ok: true });
+
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /\/api\/containers\/logs\?id=c1&tail=50$/);
+    return new Response('{"ok":true,"logs":"line1\\nline2"}', { status: 200 });
+  };
+  const logsRes = await client.containerLogs('c1', 50);
+  assert.equal(logsRes.logs, 'line1\nline2');
   globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
   await assert.rejects(client.info(), error => /http:\/\/127.0.0.1:18710\/api\/info/.test(error.message) && /HTTPS|CORS/.test(error.message) && !/secret/.test(error.message));
   globalThis.fetch = (_url, init) => new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason)));

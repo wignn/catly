@@ -27,7 +27,7 @@ use std::{
 use sysinfo::System;
 use tower_http::cors::CorsLayer;
 
-pub const VERSION: &str = "0.2.0";
+pub const VERSION: &str = "1.0.0";
 
 #[derive(Clone)]
 pub struct AppState {
@@ -172,6 +172,9 @@ async fn main() {
         .route("/processes/kill", post(ops::kill_process))
         .route("/services", get(ops::list_services))
         .route("/services/action", post(ops::service_action))
+        .route("/containers", get(ops::list_containers))
+        .route("/containers/action", post(ops::container_action))
+        .route("/containers/logs", get(ops::container_logs))
         .route("/net", get(ops::net_info))
         .route("/files", get(ops::list_files))
         .route("/files/read", get(ops::read_file))

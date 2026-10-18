@@ -60,6 +60,23 @@ Client WAJIB minta konfirmasi sebelum memanggil ini.
 ### `POST /api/services/action` — `{ "unit": "nginx.service", "action": "restart" }`
 `action`: `start` | `stop` | `restart` | `reload`. Response `{ "ok": true }`.
 
+### `GET /api/containers` (Docker)
+Response:
+```json
+{
+  "available": true,
+  "containers": [
+    { "id": "c1a2b3c4d5e6", "names": "web-app", "image": "nginx:alpine", "state": "running", "status": "Up 2 hours", "ports": "0.0.0.0:80->80/tcp" }
+  ]
+}
+```
+
+### `POST /api/containers/action` — `{ "id": "web-app", "action": "restart" }`
+`action`: `start` | `stop` | `restart` | `kill`. Response `{ "ok": true }`.
+
+### `GET /api/containers/logs?id=web-app&tail=200`
+Response `{ "ok": true, "logs": "..." }`.
+
 ### `GET /api/net` — info jaringan
 ```json
 { "public_ip": "43.134.104.71",
