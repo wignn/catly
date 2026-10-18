@@ -59,3 +59,4 @@ try {
   assert.equal((await readFile('/etc/vps-agent/token', 'utf8')).trim(), token);
   console.log('PASS: active metrics/log/PTY sessions revoked on admin rotation; independent viewer and persisted token preserved');
 } finally { for (const ws of sockets) ws.close(); }
+process.exit(0);

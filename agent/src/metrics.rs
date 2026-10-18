@@ -3,6 +3,7 @@
 use crate::AppState;
 use axum::extract::ws::{Message, WebSocket};
 use axum::{extract::State, http::StatusCode, Json};
+use futures_util::StreamExt;
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -160,17 +161,26 @@ pub async fn http_metrics(State(state): State<AppState>) -> Result<Json<MetricsS
 pub async fn stream_metrics(mut socket: WebSocket, state: AppState, token: String) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
-        interval.tick().await;
-        if state.security.lock().unwrap().role(&token).is_none() {
-            break;
-        }
-        let snap = match collect(state.clone()).await {
-            Ok(snap) => snap,
-            Err(_) => break,
-        };
-        let text = serde_json::to_string(&snap).unwrap();
-        if socket.send(Message::Text(text)).await.is_err() {
-            break;
+        tokio::select! {
+            _ = interval.tick() => {
+                if state.security.lock().unwrap().role(&token).is_none() {
+                    break;
+                }
+                let snap = match collect(state.clone()).await {
+                    Ok(snap) => snap,
+                    Err(_) => break,
+                };
+                let text = serde_json::to_string(&snap).unwrap();
+                if socket.send(Message::Text(text)).await.is_err() {
+                    break;
+                }
+            }
+            msg = socket.next() => {
+                match msg {
+                    Some(Ok(Message::Close(_))) | None => break,
+                    _ => {}
+                }
+            }
         }
     }
 }
