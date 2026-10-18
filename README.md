@@ -1,72 +1,72 @@
 ﻿# VPS Manager
 
-Konsol desktop Windows untuk mengelola koneksi VPS, memantau resource, dan membuka terminal multi-tab dengan split panel. Client menggunakan Tauri, React, dan TypeScript; agent menggunakan Rust.
+Windows desktop console for managing VPS connections, monitoring resources, and opening multi-tab terminals with split panels. The client is built with Tauri, React, and TypeScript; the agent is written in Rust.
 
-## Instalasi
+## Installation
 
-Binary, installer, dan checksum diterbitkan lewat [GitHub Releases Catly](https://github.com/wignn/catly/releases) oleh CI/CD (lihat [panduan rilis](docs/RELEASING.md)). URL berikut menggunakan rilis terbaru dan tersedia setelah tag `v*` pertama berhasil dibuild dan diterbitkan.
+Binaries, installers, and checksums are published via [Catly GitHub Releases](https://github.com/wignn/catly/releases) by CI/CD (see [release guide](docs/RELEASING.md)). The URLs below point to the latest release and are available after the first `v*` tag is successfully built and published.
 
-### Agent Linux
+### Linux Agent
 
-Linux dengan systemd, `curl`, dan coreutils. Binary x86_64 memerlukan glibc 2.35+ (Ubuntu 22.04+); aarch64 memerlukan glibc 2.39+ (Ubuntu 24.04+).
+Linux with systemd, `curl`, and coreutils. The x86_64 binary requires glibc 2.35+ (Ubuntu 22.04+); aarch64 requires glibc 2.39+ (Ubuntu 24.04+).
 
 ```bash
 curl -fsSL https://github.com/wignn/catly/releases/latest/download/install.sh | sudo bash
 ```
 
-Installer memilih binary sesuai arsitektur, memeriksa SHA-256, memasang binary di `/opt/vps-agent/vps-agent` dengan symlink `/usr/local/bin/vps-agent`, lalu mengaktifkan dan menjalankan service `vps-agent` otomatis saat boot. Instalasi baru mendeteksi IP Tailscale yang sudah aktif; jika tidak ada, agent memakai `127.0.0.1:18710`. Saat upgrade, token dan alamat bind dipertahankan.
+The installer detects architecture, verifies the SHA-256 checksum, installs the binary to `/opt/vps-agent/vps-agent` with a symlink at `/usr/local/bin/vps-agent`, then enables and starts the `vps-agent` service automatically on boot. Fresh installations automatically detect an active Tailscale IP; if unavailable, the agent defaults to `127.0.0.1:18710`. During upgrades, existing tokens and bind addresses are preserved.
 
-Untuk versi tertentu, gunakan URL versi yang sama bagi skrip dan binary:
+To install a specific version, use matching URLs for both the script and binary:
 
 ```bash
 RELEASE_URL='https://github.com/wignn/catly/releases/download/v0.1.0'
 curl -fsSL "$RELEASE_URL/install.sh" | sudo bash -s -- --release-url "$RELEASE_URL"
 ```
 
-Untuk menghubungkan client melalui Tailscale, edit `/etc/vps-agent/environment`:
+To connect the client over Tailscale, edit `/etc/vps-agent/environment`:
 
 ```ini
 VPS_AGENT_BIND=100.64.0.12:18710
 ```
 
-Gunakan IP Tailscale VPS milikmu, kemudian jalankan `sudo systemctl restart vps-agent`. Periksa service dengan `sudo systemctl status vps-agent` dan log dengan `sudo journalctl -u vps-agent -n 50`.
+Use your VPS Tailscale IP, then run `sudo systemctl restart vps-agent`. Check service status with `sudo systemctl status vps-agent` and logs with `sudo journalctl -u vps-agent -n 50`.
 
-### Aplikasi Windows
+### Windows Application
 
-Windows x64 dengan WebView2. Jalankan di PowerShell:
+Windows x64 with WebView2. Run in PowerShell:
 
 ```powershell
 irm https://github.com/wignn/catly/releases/latest/download/install.ps1 | iex
 ```
 
-Installer mengunduh MSI, memeriksa SHA-256, lalu membuka wizard instalasi. Jika dibatalkan, installer melaporkan kegagalan tanpa mengklaim instalasi berhasil. Perintah `curl` dan `irm` juga tersedia di halaman Server dengan URL Catly sebagai default. Untuk memilih versi lain, set `$env:VPS_MANAGER_RELEASE_URL` ke folder rilis versi tersebut sebelum menjalankan skrip dari folder yang sama.
+The installer downloads the MSI, verifies SHA-256, and launches the setup wizard. If cancelled, it reports failure without claiming a successful installation. Equivalent `curl` and `irm` commands are also available on the Servers page with Catly URLs as default. To choose a different version, set `$env:VPS_MANAGER_RELEASE_URL` to that version's release folder before running the script from the same folder.
 
-Hanya jalankan skrip dari penerbit yang kamu percaya. Untuk meninjau skrip terlebih dahulu, unduh `install.sh` atau `install.ps1` dari folder rilis, baca isinya, lalu jalankan secara lokal. Checksum dari server yang sama mendeteksi kerusakan unduhan; checksum bukan tanda tangan penerbit.
+Only run scripts from publishers you trust. To review scripts before running them, download `install.sh` or `install.ps1` from the release folder, inspect the contents, and run them locally. Checksums from the same server detect download corruption; they are not publisher signatures.
 
-## Penggunaan
+## Usage
 
-1. Pasang agent di VPS dan atur alamat bind yang dapat diakses melalui jaringan privat atau reverse proxy HTTPS.
-2. Buka aplikasi, isi nama, alamat, port, dan token agent pada halaman **Server**.
-3. Pilih **Uji koneksi** untuk memeriksa autentikasi.
-4. Buka **Dashboard** untuk metrik CPU, RAM, swap, disk, dan jaringan, atau **Terminal** untuk shell interaktif.
+1. Install the agent on the VPS and set a bind address accessible via a private network or HTTPS reverse proxy.
+2. Open the app, then enter the name, address, port, and agent token on the **Servers** page.
+3. Click **Test connection** to verify authentication.
+4. Open **Dashboard** for realtime CPU, RAM, swap, disk, and network metrics, or **Terminal** for an interactive shell.
 
-Profil desktop disimpan di SQLite; token disimpan di Windows Credential Manager. Token lama di SQLite dimigrasikan setelah penyimpanan aman berhasil diverifikasi. Mode browser menyimpan profil di localStorage dan token hanya di memori halaman: setelah reload, isi token lagi melalui **Edit**. Agent menyediakan akses shell sebagai root; gunakan Tailscale atau reverse proxy HTTPS. Service membatasi penulisan filesystem melalui systemd; operasi tulis di luar direktori yang diizinkan memerlukan penyesuaian unit service.
+Desktop profiles are stored in SQLite; tokens are stored in Windows Credential Manager. Legacy SQLite tokens are migrated after secure storage verification succeeds. Browser mode stores profiles in localStorage and tokens only in page memory: after reloading, re-enter tokens via **Edit**. The agent provides shell access as root; use Tailscale or an HTTPS reverse proxy. The service restricts filesystem writes via systemd; write operations outside permitted directories require service unit adjustments.
 
-## Pengelolaan lanjutan (v0.2.0)
+## Advanced Management (v0.2.0)
 
-- **Server:** edit profil, uji koneksi dengan timeout dan URL tujuan, status terkini, versi agent, latensi, dan waktu koneksi terakhir. Pesan jaringan menunjukkan langkah pemeriksaan tanpa menebak penyebab firewall/CORS.
-- **Monitoring:** riwayat CPU/RAM/jaringan hingga tujuh hari, grafik 1 jam/24 jam/7 hari, dan alert CPU/RAM/disk ≥90%, server offline, serta service gagal. Notifikasi Windows memakai plugin resmi Tauri dan memerlukan opt-in. Pengambilan sampel dan notifikasi berjalan selama aplikasi terbuka; tidak ada pengiriman ke layanan pihak ketiga.
-- **Kelola VPS → Service & log:** cari service systemd, start/stop/restart dengan konfirmasi, dan ikuti/pencarian log langsung (maksimal 1.000 baris terakhir).
-- **File:** jelajah direktori, upload termasuk drag-and-drop, download, dan edit teks hingga 2 MB. File lama dicadangkan sebagai `*.vps-backup-*` sebelum diganti. Penulisan agent memerlukan direktori milik pengguna agent tanpa izin tulis group/other; gunakan SFTP untuk direktori milik pengguna lain. Batas akses juga mengikuti unit systemd.
-- **SFTP desktop:** transfer melalui Windows OpenSSH Client, memakai SSH key atau SSH agent. Hubungkan melalui `ssh -p PORT USER@HOST` lebih dahulu, periksa fingerprint, lalu simpan host key. Key terenkripsi harus dimuat di SSH agent. SFTP memakai file sementara sebelum mengganti tujuan dan tidak membuat backup agent; server tanpa dukungan rename pengganti dapat menolak overwrite.
-- **Update agent:** cek versi Catly, minta update stabil terbaru, atau rollback ke binary sebelumnya. Updater systemd memverifikasi SHA-256 dan arsitektur, serta memulihkan binary sebelumnya bila health check gagal. Endpoint ini memerlukan agent dan installer v0.2.0+; upgrade pertama dari v0.1.0 memakai perintah instalasi Linux di atas.
-- **Keamanan:** rotasi token admin, buat token read-only khusus pemantauan, dan audit operasi. Read-only tidak bisa membuka terminal/log, membaca file, atau menjalankan perintah. Token yang dirotasi membatalkan akses REST dan koneksi WebSocket lama. Audit sesi dibatasi 200 entri dan tidak mencatat isi perintah atau token.
+- **Servers:** Edit profiles, test connection with timeout and target URL, view current status, agent version, latency, and last connection timestamp. Network diagnostics display clear verification steps without guessing firewall/CORS issues.
+- **Monitoring:** CPU/RAM/network history up to seven days, 1h/24h/7d charts, and alerts for CPU/RAM/disk ≥90%, offline server, or failed services. Windows notifications use the official Tauri plugin and require opt-in. Sampling and notifications run while the app is open; no data is sent to third-party services.
+- **VPS Management → Services & logs:** Search systemd services, start/stop/restart with confirmation, and stream/search live logs (up to 1,000 recent lines).
+- **Files:** Directory navigation, uploads with drag-and-drop support, downloads, and text editing up to 2 MB. Existing files are backed up as `*.vps-backup-*` before replacement. Agent writes require directories owned by the agent user without group/other write permissions; use SFTP for directories owned by other users. Access restrictions also follow systemd unit settings.
+- **Desktop SFTP:** Transfers via Windows OpenSSH Client using SSH keys or SSH agent. Connect via `ssh -p PORT USER@HOST` first to inspect fingerprints and store host keys. Encrypted keys must be loaded in the SSH agent. SFTP writes to temporary files before atomic replacement and does not create agent backups; servers without rename replacement support may reject overwrites.
+- **Agent Updates:** Check Catly versions, request latest stable updates, or rollback to the previous binary. The systemd updater verifies SHA-256 and architecture, and automatically restores the previous binary if health checks fail. This endpoint requires agent and installer v0.2.0+; initial upgrades from v0.1.0 use the Linux install command above.
+- **Security:** Rotate admin tokens, create monitoring-only read-only tokens, and audit operations. Read-only tokens cannot open terminals/logs, read files, or execute commands. Rotated tokens immediately revoke REST access and active WebSocket sessions. Session audit log is capped at 200 entries and never logs command contents or tokens.
 
-Tailscale harus sudah dipasang dan login di VPS serta Windows. Installer tidak mendaftarkan perangkat ke akun Tailscale atau membuka firewall publik. Bila konfigurasi lama masih loopback, ubah bind secara eksplisit seperti contoh di atas.
+Tailscale must be pre-installed and authenticated on both VPS and Windows. The installer does not register devices with Tailscale accounts or open public firewalls. If legacy configurations still use loopback, explicitly update the bind address as shown above.
 
-## Pengembangan
+## Development
 
-Prasyarat client: Node.js 20.19+ atau 22.12+, Rust stable, serta [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) untuk Windows (C++ build tools dan WebView2).
+Client prerequisites: Node.js 20.19+ or 22.12+, Rust stable, and [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for Windows (C++ build tools and WebView2).
 
 ```powershell
 cd client
@@ -78,9 +78,9 @@ npm run tauri dev
 npm run tauri build
 ```
 
-Jika sandbox membatasi loader konfigurasi esbuild, gunakan `npm run build -- --configLoader runner`. Hasil frontend berada di `client/dist`; paket Windows berada di `client/src-tauri/target/release/bundle/msi/`.
+If sandbox restrictions affect the esbuild config loader, use `npm run build -- --configLoader runner`. Frontend build artifacts are in `client/dist`; Windows packages are in `client/src-tauri/target/release/bundle/msi/`.
 
-Build agent di Linux:
+Build the agent on Linux:
 
 ```bash
 cd agent
@@ -88,7 +88,7 @@ cargo build --release --locked
 sudo bash install.sh ./target/release/vps-agent
 ```
 
-## Verifikasi
+## Verification
 
 ```powershell
 cd client
@@ -99,23 +99,23 @@ node e2e/agent-client-check.mjs
 node client/src/lib/db.test.mjs
 ```
 
-Pemeriksaan UI tanpa dependency tambahan memerlukan Node.js 22+ (global WebSocket), client dev server di port 1420, dan Chrome dengan remote debugging port 9223. Jalankan Chrome menggunakan profil pengujian terpisah:
+UI verification without extra dependencies requires Node.js 22+ (global WebSocket), the client dev server running on port 1420, and Chrome with remote debugging on port 9223. Run Chrome using a dedicated test profile:
 
 ```powershell
 & 'C:/Program Files/Google/Chrome/Application/chrome.exe' --headless=new --remote-debugging-port=9223 --user-data-dir="$PWD/.browser-test/chrome" about:blank
-# Pada terminal lain, dari root proyek:
+# In another terminal from the repository root:
 node e2e/ui-check.mjs
 ```
 
-Pemeriksaan ini menguji penambahan dan persistensi profil, pencarian, kegagalan penyimpanan, perintah instalasi, layout mobile, metrik simulasi dan status putus, serta split panel. Screenshot tersimpan di `.browser-test/`. Pemeriksaan ini tidak menggantikan uji terminal terhadap agent Linux sungguhan.
+This verification exercises profile creation and persistence, search filtering, storage failure handling, installer command generation, responsive mobile layout, simulated metrics and disconnect state, as well as terminal split panels. Screenshots are saved to `.browser-test/`. This test suite does not replace terminal testing against a real Linux agent.
 
-## Struktur
+## Structure
 
-| Folder | Isi |
+| Directory | Contents |
 | --- | --- |
-| `agent/` | Service Rust, REST API, WebSocket metrik dan PTY, installer Linux |
-| `client/` | Aplikasi Tauri, React, TypeScript |
-| `docs/` | [Kontrak protokol](docs/AGENT_PROTOCOL.md) dan panduan rilis |
-| `e2e/` | Pemeriksaan UI dan installer |
+| `agent/` | Rust service, REST API, WebSocket metrics and PTY, Linux installer |
+| `client/` | Tauri application, React, TypeScript |
+| `docs/` | [Protocol contract](docs/AGENT_PROTOCOL.md) and release guide |
+| `e2e/` | UI and installer verification tests |
 
-API proses dan jaringan tersedia di agent. UI mencakup profil server, dashboard, terminal, monitoring, service/log, file/SFTP, update/rollback, dan keamanan.
+Process and network APIs are available on the agent. The UI includes server profiles, dashboard, terminal, monitoring, services/logs, files/SFTP, update/rollback, and security management.
