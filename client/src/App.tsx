@@ -40,7 +40,7 @@ function Shell() {
         <div className={"page-content" + (state.view === "terminal" ? " terminal-content" : "")}>
           <div className="view-pane" hidden={state.view !== "servers"}><ServerList /></div>
           <div className="view-pane" hidden={state.view !== "dashboard"}><Dashboard active={state.view === "dashboard"} /></div>
-          <div className="view-pane" hidden={state.view !== "terminal"}><TerminalView /></div>
+          <div className="view-pane terminal-view-pane" hidden={state.view !== "terminal"}><TerminalView /></div>
           <div className="view-pane" hidden={state.view !== "monitoring"}><Monitoring /></div>
           <div className="view-pane" hidden={state.view !== "operations"}><Operations /></div>
           <div className="view-pane" hidden={state.view !== "files"}>

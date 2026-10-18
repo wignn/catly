@@ -89,18 +89,24 @@ export default function TerminalPane({
       }
     });
 
+    let resizeTimer: ReturnType<typeof setTimeout>;
     const ro = new ResizeObserver(() => {
       if (!alive) return;
-      try {
-        fit.fit();
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ t: "resize", cols: term.cols, rows: term.rows }));
-        }
-      } catch { /* abaikan */ }
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (!alive) return;
+        try {
+          fit.fit();
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ t: "resize", cols: term.cols, rows: term.rows }));
+          }
+        } catch { /* abaikan */ }
+      }, 30);
     });
     ro.observe(el);
 
     return () => {
+      clearTimeout(resizeTimer);
       if (paneId && onUnregisterSender) {
         onUnregisterSender(paneId);
       }
