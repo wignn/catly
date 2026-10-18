@@ -48,8 +48,11 @@ else
   BIN_SRC="${1:-./vps-agent}"
 fi
 [[ -f "$BIN_SRC" ]] || fail "Binary not found: $BIN_SRC"
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)
-if [[ -f "$SCRIPT_DIR/update.sh" ]]; then
+SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)
+fi
+if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/update.sh" ]]; then
   UPDATER="$SCRIPT_DIR/update.sh"
 else
   command -v curl >/dev/null || fail 'curl is required for the updater.'
