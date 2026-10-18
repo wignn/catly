@@ -39,6 +39,19 @@ export default function Operations() {
     setLatest("");
   }, [server?.id]);
 
+  useEffect(() => {
+    if (!server) return;
+    if (tab === "services" && services.length === 0) {
+      void refreshServices();
+    } else if (tab === "maintenance" && !diagnostics) {
+      void refreshMaintenance();
+    } else if (tab === "security" && audit.length === 0) {
+      void perform(async client => {
+        setAudit((await client.request<{ entries: AuditEntry[] }>("/api/security/audit")).entries);
+      });
+    }
+  }, [server?.id, tab]);
+
   useEffect(() => () => { requestSequence.current++; socket.current?.close(); }, []);
 
   const perform = async (work: (client: AgentClient) => Promise<void>) => {
@@ -124,7 +137,7 @@ export default function Operations() {
         try { await persistServer(changed, dispatch); }
         catch {
           dispatch({ type: "add-server", server: changed });
-          throw new Error("Token sudah diganti on VPS, tetapi penyimpanan lokal gagal. Copy token baru on bawah sebelum menutup aplikasi; profil sesi ini sudah memakai token baru.");
+          throw new Error("Token was updated on the VPS, but local storage failed. Copy the new token below before closing the application; this session profile is already using the new token.");
         }
       }
       setMessage(`Token ${kind} created. Store it securely; do not send it to logs or public messages.`);
@@ -152,7 +165,7 @@ export default function Operations() {
               <td><div className="row-actions">{(["start", "stop", "restart"] as const).map(action => <button className="btn small" key={action} disabled={busy} onClick={() => act(s.unit, action)}>{action}</button>)}<button className="btn small" onClick={() => { socket.current?.close(); socket.current = null; setFollowing(false); setUnit(s.unit); setLogs([]); }}>Select logs</button></div></td>
             </tr>)}
           </tbody></table></div>
-          {!services.length && <p className="muted">Click Load / refresh to read services from the VPS.</p>}
+          {!services.length && <p className="muted">{busy ? "Loading services from VPS…" : "Click Load / refresh to read services from the VPS."}</p>}
         </div>
       </section>
       <section className="panel operation-section" aria-labelledby="logs-title"><div className="section-heading"><h2 id="logs-title">Live logs</h2><span className="muted">Up to the latest 1,000 lines</span></div>
@@ -165,7 +178,7 @@ export default function Operations() {
       <p>Updates are downloaded from <a href="https://github.com/wignn/catly/releases" target="_blank" rel="noreferrer">GitHub Releases Catly</a>. The updater verifies SHA-256 and restores the previous binary if the service fails to start.</p>
       <dl className="status-grid"><dt>Installed version</dt><dd>{update?.installed_version || diagnostics?.agent_version || "Not checked"}</dd><dt>Latest release</dt><dd>{latest || "Not checked"}</dd><dt>Bind address</dt><dd>{diagnostics?.bind || "Not checked"}</dd><dt>IP Tailscale</dt><dd>{diagnostics?.tailscale_ip || "Unavailable / not checked"}</dd><dt>Status updater</dt><dd>{update?.state || "Not checked"}</dd></dl>
       <div className="row-actions"><button className="btn primary" disabled={busy || !update || !latest || diagnostics?.role !== "admin"} onClick={() => maintain("update")}>Update agent</button><button className="btn" disabled={busy || !update?.rollback_available || diagnostics?.role !== "admin"} onClick={() => maintain("rollback")}>Roll back binary</button></div>
-      {update?.output && <pre className="log-output">{update.output}</pre>}<p className="muted">Jika endpoint belum tersedia, upgrade agent menggunakan installer rilis terbaru on VPS terlebih dahulu. Token dan bind dipertahankan.</p>
+      {update?.output && <pre className="log-output">{update.output}</pre>}<p className="muted">If the endpoint is not yet available, upgrade the agent using the latest release installer on the VPS first. Token and bind settings are preserved.</p>
     </div></section>}
     {tab === "security" && <section className="panel operation-section"><div className="section-heading"><h2>Tokens and audit</h2></div><div className="operation-body">
       <p>Admin tokens grant management access. Read-only tokens allow only info, metrics, service status, and diagnostics; they cannot open terminals, read files, or run commands.</p>

@@ -49,6 +49,13 @@ function ServerCard({ server }: { server: Server }) {
       }
     }).catch(e => {if(alive)setErr((e as Error).message);});
 
+    client.metrics().then((m) => {
+      if (alive) {
+        setSnap(current => current ?? m);
+        if (hist.current.length === 0) hist.current = [m.cpu.total];
+      }
+    }).catch(() => {});
+
     const connect = () => {
       if (!alive) return;
       try { ws = client.metricsSocket(); } catch { schedule(); return; }
@@ -126,7 +133,12 @@ function ServerCard({ server }: { server: Server }) {
           </div>
         </div>
       ) : (
-        <div className="muted">Connecting…</div>
+        <div className="skeleton-metrics" aria-busy="true">
+          <div className="skeleton-row"><div className="skeleton-box" style={{ width: "35%", height: "13px" }} /><div className="skeleton-box" style={{ width: "100%", height: "36px" }} /></div>
+          <div className="skeleton-row"><div className="skeleton-box" style={{ width: "55%", height: "13px" }} /><div className="skeleton-box" style={{ width: "100%", height: "7px" }} /></div>
+          <div className="skeleton-row"><div className="skeleton-box" style={{ width: "45%", height: "13px" }} /><div className="skeleton-box" style={{ width: "100%", height: "7px" }} /></div>
+          <div className="muted" style={{ fontSize: "11px", marginTop: "4px" }}>Connecting & gathering live metrics…</div>
+        </div>
       )}
       <div className="card-footer"><span className="muted">{snap ? `Sample: ${new Date(snap.ts * 1000).toLocaleTimeString("en-US")}` : "Waiting for agent metrics"}</span><button className="btn small" onClick={() => dispatch({ type: "open-tab", serverId: server.id })}>Terminal</button></div>
     </div>
