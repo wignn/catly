@@ -27,7 +27,7 @@ use std::{
 use sysinfo::System;
 use tower_http::cors::CorsLayer;
 
-pub const VERSION: &str = "1.0.0";
+pub const VERSION: &str = "1.0.1";
 
 #[derive(Clone)]
 pub struct AppState {

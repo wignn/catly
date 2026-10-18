@@ -52,7 +52,7 @@ Only run scripts from publishers you trust. To review scripts before running the
 
 Desktop profiles are stored in SQLite; tokens are stored in Windows Credential Manager. Legacy SQLite tokens are migrated after secure storage verification succeeds. Browser mode stores profiles in localStorage and tokens only in page memory: after reloading, re-enter tokens via **Edit**. The agent provides shell access as root; use Tailscale or an HTTPS reverse proxy. The service restricts filesystem writes via systemd; write operations outside permitted directories require service unit adjustments.
 
-## Core & Advanced Features (v1.0.0)
+## Core & Advanced Features (v1.0.1)
 
 - **Multi-Server Broadcast Terminal:** Broadcast keystrokes and shell commands simultaneously across split panes to multiple VPS nodes at once. Features a glowing broadcast safety indicator and dedicated command broadcast bar.
 - **Docker Container Manager:** List containers, inspect status and ports, start, stop, restart, and inspect recent container logs directly from the console.
